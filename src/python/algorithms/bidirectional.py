@@ -1,12 +1,27 @@
 # Wrapper for BiDirectionalCpp
-from typing import List, Optional, Tuple, Union
+from typing import Dict, Hashable, List, Optional, Tuple, Union
 
 from networkx import DiGraph, convert_node_labels_to_integers, get_node_attributes
 from cspy.preprocessing import preprocess_graph
-from cspy.checking import check
+from cspy.checking import check, check_native_windows
 
 # Import from the SWIG output file
-from .pyBiDirectionalCpp import BiDirectionalCpp, REFCallback, DoubleVector
+from .pyBiDirectionalCpp import (
+    BiDirectionalCpp,
+    REFCallback,
+    DoubleVector,
+    NodeWindowREF,
+    POLICY_ADDITIVE,
+    POLICY_WINDOW_WAIT,
+    POLICY_WINDOW_HARD,
+)
+
+#: Mapping from user-facing policy names to native enum values
+_POLICY_MAP = {
+    "additive": POLICY_ADDITIVE,
+    "window_wait": POLICY_WINDOW_WAIT,
+    "window_hard": POLICY_WINDOW_HARD,
+}
 
 
 class BiDirectional:
@@ -87,6 +102,72 @@ class BiDirectional:
     two_cycle_elimination: bool, optional
         whether 2-cycles should be eliminated for non-elementary RCSPP
 
+    time_windows : dict, optional
+        Native (C++-side) time windows: ``{node: (a_v, b_v)}`` with the
+        original node names as keys. Sets policy ``window_wait`` on resource
+        ``time_res`` (default 1). The propagated resource value is the
+        *service start time* at the node, with transition
+        ``T_head = max(a_head, T_tail + s_tail + t_edge)`` where ``t_edge`` is
+        ``res_cost[time_res]`` (travel time) and rejection when
+        ``T_head > b_head`` (waiting until ``a_head`` is allowed).
+        Unspecified nodes default to ``(0, max_res[time_res])``.
+        ``res[0]`` must remain a monotone critical resource (e.g. edge count
+        with ``res_cost[0] = 1`` on every edge). The
+        arrival-then-service convention (windows on arrival, value = departure
+        time) is feasibility-equivalent with the same parameters; only the
+        reported value differs by ``+s_v``.
+        Notes: cannot be combined with ``REF_callback`` or
+        ``find_critical_res=True``; ``preprocess=True`` is a no-op (pruning is
+        always skipped, as with ``REF_callback``); for ``direction='both'``
+        the reported window resource in ``consumed_resources`` is a
+        feasibility surrogate (``start_h + g_h``), and for
+        ``direction='backward'`` it is on the reversed time axis.
+        Default : None
+
+    service_times : dict, optional
+        ``{node: s_v}`` with ``s_v >= 0``, added on departure from the node
+        (unspecified nodes default to 0). Only usable with ``time_windows``.
+        Default : None
+
+    time_res : int, optional
+        resource index used by ``time_windows``. Must differ from the
+        critical resource index. Default : 1
+
+    node_windows : dict, optional
+        general native interface: ``{res_idx: {node: (lb, ub)}}``.
+        Default : None
+
+    node_consumption : dict, optional
+        general native interface: ``{res_idx: {node: c_v}}``. For policy
+        ``additive`` the consumption of the *head* node is added on arrival
+        (visit flags: ``c = -1`` with ``min_res[r] <= -1``); for window
+        policies it is added on departure from the *tail* node (service
+        time). Default : None
+
+    window_policy : dict, optional
+        ``{res_idx: 'additive' | 'window_wait' | 'window_hard'}``; missing
+        resources default to ``'additive'``. ``'window_hard'`` (reject early
+        arrivals instead of waiting) requires ``direction='forward'``.
+        Default : None
+
+    window_eps : float, optional
+        tolerance used in native window comparisons. Default : 1e-9
+
+    Notes
+    -----
+    When no resource-feasible ``Source -> Sink`` path exists, the reported
+    result is a *degenerate* one that differs by direction:
+    ``direction='forward'`` yields ``path == ['Source']`` with
+    ``total_cost == 0.0``, ``'both'`` yields ``path is None`` and
+    ``'backward'`` yields ``path == ['Sink']`` (pre-existing engine
+    behaviour, native windows or not). Always check for a degenerate result
+    before interpreting ``total_cost`` -- in column generation pricing,
+    ``total_cost == 0.0`` from a degenerate path must not be read as
+    "no improving column"::
+
+        infeasible = (alg.path is None or len(alg.path) <= 1
+                      or alg.path[0] != "Source" or alg.path[-1] != "Sink")
+
     .. _REFs : https://cspy.readthedocs.io/en/latest/ref.html
     .. _Tilk 2017: https://www.sciencedirect.com/science/article/pii/S0377221717302035
     .. _Righini and Salani (2006): https://www.sciencedirect.com/science/article/pii/S1572528606000417
@@ -109,13 +190,48 @@ class BiDirectional:
         # seed: Union[int] = None,
         REF_callback: Optional[REFCallback] = None,
         two_cycle_elimination: Optional[bool] = False,
+        # --- native time windows (simple interface) ---
+        time_windows: Optional[Dict[Hashable, Tuple[float, float]]] = None,
+        service_times: Optional[Dict[Hashable, float]] = None,
+        time_res: int = 1,
+        # --- native windows (general interface) ---
+        node_windows: Optional[Dict[int, Dict[Hashable, Tuple[float, float]]]] = None,
+        node_consumption: Optional[Dict[int, Dict[Hashable, float]]] = None,
+        window_policy: Optional[Dict[int, str]] = None,
+        window_eps: float = 1e-9,
     ):
         # Check inputs
         check(G, max_res, min_res, direction, REF_callback, __name__)
         # check_seed(seed, __name__)
-        # Preprocess and save graph
+        check_native_windows(
+            G,
+            max_res,
+            min_res,
+            direction,
+            REF_callback,
+            critical_res,
+            find_critical_res,
+            preprocess,
+            time_windows,
+            service_times,
+            time_res,
+            node_windows,
+            node_consumption,
+            window_policy,
+        )
+        # Normalised native window specs: {r: (policy, windows, consumption)}
+        window_specs = self._normalize_window_specs(
+            time_windows,
+            service_times,
+            time_res,
+            node_windows,
+            node_consumption,
+            window_policy,
+        )
+        # Preprocess and save graph. Native windows behave like a custom REF:
+        # pruning is always skipped.
         self.G: DiGraph = preprocess_graph(
-            G, max_res, min_res, preprocess, REF_callback
+            G, max_res, min_res, preprocess, REF_callback or bool(window_specs)
         )
         # Dictionary with graph label -> original label
         self._original_node_labels = None
@@ -159,6 +275,26 @@ class BiDirectional:
             # disown it first by calling __disown__).
             # see: https://github.com/swig/swig/blob/b6c2438d7d7aac5711376a106a156200b7ff1056/Examples/python/callback/runme.py#L36
             self.bidirectional_cpp.setREFCallback(REF_callback)
+        # Native windows REF (pure C++, non-director proxy: REF calls during
+        # the labelling loop never cross the Python boundary).
+        self._window_ref = None
+        if window_specs:
+            self._window_ref = self._build_native_windows(
+                max_res,
+                critical_res if isinstance(critical_res, int) else 0,
+                window_specs,
+                window_eps,
+            )
+            # Ownership: `self` keeps the (Python-owned, thisown=True)
+            # reference for the lifetime of bidirectional_cpp. Params never
+            # deletes its ref_callback pointer (Params::~Params nulls it
+            # before delete), so there is no double free. Do NOT __disown__
+            # (that would leak the object).
+            self.bidirectional_cpp.setREFCallback(self._window_ref)
+            # Also tie the native REF's lifetime to the C++ proxy itself, so
+            # extracting `bidirectional_cpp` and dropping this wrapper cannot
+            # leave the C++ side with a dangling callback pointer.
+            self.bidirectional_cpp._window_ref_keepalive = self._window_ref
         # if isinstance(seed, int) and seed is not None:
         #     self.bidirectional_cpp.setSeed(seed)
         if isinstance(two_cycle_elimination, bool) and two_cycle_elimination:
@@ -224,6 +360,83 @@ class BiDirectional:
             self.bidirectional_cpp.addEdge(
                 edge[0], edge[1], edge[2]["weight"], res_cost
             )
+
+    @staticmethod
+    def _normalize_window_specs(
+        time_windows,
+        service_times,
+        time_res,
+        node_windows,
+        node_consumption,
+        window_policy,
+    ):
+        """Merge the simple (time_windows) and general (node_windows/...)
+        native interfaces into ``{r: (policy_int, {node: (lb, ub)},
+        {node: consumption})}`` keyed by resource index."""
+        specs = {}
+        general_res = set()
+        for d in (node_windows, node_consumption, window_policy):
+            if d is not None:
+                general_res.update(d.keys())
+        for r in general_res:
+            policy = _POLICY_MAP[(window_policy or {}).get(r, "additive")]
+            specs[r] = (
+                policy,
+                dict((node_windows or {}).get(r, {})),
+                dict((node_consumption or {}).get(r, {})),
+            )
+        if time_windows is not None:
+            specs[time_res] = (
+                _POLICY_MAP["window_wait"],
+                dict(time_windows),
+                dict(service_times or {}),
+            )
+        return specs
+
+    def _build_native_windows(self, max_res, critical_res, specs, eps):
+        """Translate original-node-name keyed specs to internal integer id
+        arrays and build the native :class:`NodeWindowREF`."""
+        n = len(self.G.nodes())
+        # original node name -> internal integer id
+        rev = {v: k for k, v in self._original_node_labels.items()}
+        ref = NodeWindowREF(
+            n,
+            _list_to_double_vector(max_res),
+            self._source_id,
+            self._sink_id,
+            critical_res,
+            eps,
+        )
+        for r, (policy, windows, cons) in specs.items():
+            # Default: unspecified nodes have window [0, max_res[r]] and
+            # zero consumption
+            lb = [0.0] * n
+            ub = [float(max_res[r])] * n
+            cc = [0.0] * n
+            for name, (a, b) in windows.items():
+                try:
+                    i = rev[name]
+                except KeyError:
+                    raise KeyError(
+                        "Window node {} not found in graph (was it pruned"
+                        " or misspelled?)".format(name)
+                    )
+                lb[i], ub[i] = float(a), float(b)
+            for name, c in cons.items():
+                try:
+                    cc[rev[name]] = float(c)
+                except KeyError:
+                    raise KeyError(
+                        "Consumption node {} not found in graph".format(name)
+                    )
+            ref.setResourcePolicy(
+                r,
+                policy,
+                _list_to_double_vector(lb),
+                _list_to_double_vector(ub),
+                _list_to_double_vector(cc),
+            )
+        return ref
 
     def _get_original_node_label(self, node_label):
         matching_labels = [

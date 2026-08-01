@@ -684,7 +684,10 @@ void BiDirectional::joinLabels() {
   // for each vertex visited forward
   for (const int& n : fwd_search_ptr_->visited_vertices) {
     // if bound check fwd_label
-    if (fwd_search_ptr_->best_labels[n]->weight + *bwd_min <= UB &&
+    // Defensive null guard: best_labels[n] may be unset when no globally
+    // feasible label reached n (see updateBestLabels early return).
+    if (fwd_search_ptr_->best_labels[n] &&
+        fwd_search_ptr_->best_labels[n]->weight + *bwd_min <= UB &&
         n != graph_ptr_->sink.lemon_id) {
       // for each forward label at n
       for (auto fwd_iter = fwd_search_ptr_->efficient_labels[n].cbegin();
@@ -703,6 +706,7 @@ void BiDirectional::joinLabels() {
             const double& edge_weight = graph_ptr_->getWeight(a);
             if (checkVertexVisited(BWD, m) &&
                 m != graph_ptr_->source.lemon_id &&
+                bwd_search_ptr_->best_labels[m] &&
                 (fwd_label.weight + edge_weight +
                      bwd_search_ptr_->best_labels[m]->weight <=
                  UB)) {

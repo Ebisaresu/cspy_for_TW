@@ -4,6 +4,7 @@
 %{
 #include "bidirectional.h"
 #include "ref_callback.h"
+#include "node_window_ref.h"
 using namespace bidirectional;
 %}
 
@@ -22,9 +23,11 @@ using namespace bidirectional;
     throw Swig::DirectorMethodException();
   }
 }
+%include <exception.i>
 %exception {
   try { $action }
   catch (Swig::DirectorException &e) { SWIG_fail; }
+  catch (std::exception &e) { SWIG_exception_fail(SWIG_RuntimeError, e.what()); }
 }
 
 
@@ -62,5 +65,17 @@ using namespace bidirectional;
 %rename("%s") bidirectional::REFCallback::REF_bwd;
 %rename("%s") bidirectional::REFCallback::REF_join;
 
+/* Expose NodeWindowREF (native REF; NO director -- pure C++ implementation,
+ * labelling-loop calls stay inside C++) */
+%rename("%s") bidirectional::NodeWindowREF;
+%rename("%s") bidirectional::NodeWindowREF::NodeWindowREF;
+%rename("%s") bidirectional::NodeWindowREF::~NodeWindowREF;
+%rename("%s") bidirectional::NodeWindowREF::setResourcePolicy;
+/* Exposed for direct unit/equivalence testing from Python */
+%rename("%s") bidirectional::NodeWindowREF::REF_fwd;
+%rename("%s") bidirectional::NodeWindowREF::REF_bwd;
+%rename("%s") bidirectional::NodeWindowREF::REF_join;
+
 %include "bidirectional.h"
 %include "ref_callback.h"
+%include "node_window_ref.h"

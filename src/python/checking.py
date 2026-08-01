@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+from math import isfinite
 from time import time
 from typing import Union
 from logging import getLogger
@@ -74,6 +76,334 @@ def check(
     if errors:
         # if any check has failed raise an exception with all the errors
         raise Exception("\n".join("{}".format(item) for item in errors))
+
+
+#: Valid policies for :func:`check_native_windows` / native node windows
+WINDOW_POLICIES = ("additive", "window_wait", "window_hard")
+
+
+def check_native_windows(
+    G,
+    max_res,
+    min_res,
+    direction,
+    REF_callback,
+    critical_res,
+    find_critical_res,
+    preprocess,
+    time_windows,
+    service_times,
+    time_res,
+    node_windows,
+    node_consumption,
+    window_policy,
+):
+    """Validate the native node-window arguments of
+    :class:`cspy.BiDirectional` (``time_windows`` / ``service_times`` /
+    ``node_windows`` / ``node_consumption`` / ``window_policy``).
+
+    :raises: Raises an exception listing all violations found.
+    """
+    has_native = any(
+        x is not None
+        for x in (
+            time_windows,
+            service_times,
+            node_windows,
+            node_consumption,
+            window_policy,
+        )
+    )
+    if not has_native:
+        return
+    # --- container types first (clear errors instead of AttributeError);
+    # nothing below can be checked meaningfully with wrong top-level types ---
+    type_errors = []
+    for arg_name, d in (
+        ("time_windows", time_windows),
+        ("service_times", service_times),
+        ("node_windows", node_windows),
+        ("node_consumption", node_consumption),
+        ("window_policy", window_policy),
+    ):
+        if d is not None and not isinstance(d, Mapping):
+            type_errors.append(
+                TypeError(
+                    "{} must be a dict, got {}".format(
+                        arg_name, type(d).__name__
+                    )
+                )
+            )
+    if type_errors:
+        raise Exception("\n".join("{}".format(item) for item in type_errors))
+    errors = []
+    n_res = G.graph.get("n_res", len(max_res))
+    c_res = critical_res if isinstance(critical_res, int) else 0
+
+    if REF_callback is not None:
+        errors.append(
+            TypeError("Native windows cannot be combined with REF_callback")
+        )
+    if find_critical_res:
+        errors.append(
+            TypeError(
+                "Native windows cannot be combined with find_critical_res=True"
+                " (the critical resource index must be fixed)"
+            )
+        )
+    if preprocess:
+        LOG.warning(
+            "preprocess=True is a no-op with native windows"
+            " (prune_graph is always skipped, as with REF_callback)"
+        )
+
+    # --- simple interface: time_windows / service_times / time_res ---
+    if service_times is not None and time_windows is None:
+        errors.append(TypeError("service_times requires time_windows"))
+    if time_windows is not None:
+        if n_res < 2:
+            errors.append(
+                TypeError("time_windows requires n_res >= 2 "
+                          "(res[0] critical + time resource)")
+            )
+        if not isinstance(time_res, int) or not 0 <= time_res < n_res:
+            errors.append(
+                TypeError("time_res must be an int in [0, n_res)")
+            )
+        elif time_res == c_res:
+            errors.append(
+                TypeError(
+                    "time_res must differ from the critical resource index"
+                    " ({})".format(c_res)
+                )
+            )
+        else:
+            if not isfinite(float(max_res[time_res])):
+                errors.append(
+                    TypeError(
+                        "time_windows requires a finite max_res[{}] (the"
+                        " rejection sentinel must exceed the horizon; with"
+                        " inf, window-infeasible paths would be accepted)"
+                        .format(time_res)
+                    )
+                )
+            _check_window_dict(
+                G, "time_windows", time_windows, max_res, time_res, errors
+            )
+        for name, s in (service_times or {}).items():
+            if name not in G.nodes:
+                errors.append(
+                    TypeError(
+                        "service_times key {} is not a node of G".format(name)
+                    )
+                )
+            try:
+                s_val = float(s)
+            except (TypeError, ValueError):
+                errors.append(
+                    TypeError(
+                        "service_times[{}] must be a number, got"
+                        " {!r}".format(name, s)
+                    )
+                )
+                continue
+            if s_val < 0:
+                errors.append(
+                    TypeError(
+                        "service_times must be >= 0 (node {})".format(name)
+                    )
+                )
+
+    # --- general interface ---
+    policies = {}
+    general_res = set()
+    for d in (node_windows, node_consumption, window_policy):
+        if d is not None:
+            general_res.update(d.keys())
+    for r in general_res:
+        if not isinstance(r, int) or not 0 <= r < n_res:
+            errors.append(
+                TypeError("Resource index {} out of range [0, n_res)".format(r))
+            )
+            continue
+        if time_windows is not None and r == time_res:
+            errors.append(
+                TypeError(
+                    "Resource {} configured both via time_windows/time_res"
+                    " and via the general interface".format(r)
+                )
+            )
+        policy = (window_policy or {}).get(r, "additive")
+        if policy not in WINDOW_POLICIES:
+            errors.append(
+                TypeError(
+                    "window_policy[{}] must be one of {}".format(
+                        r, WINDOW_POLICIES
+                    )
+                )
+            )
+            continue
+        policies[r] = policy
+        # Inner containers must be dicts too (clear message, no AttributeError)
+        windows_r = (node_windows or {}).get(r, None)
+        if windows_r is not None and not isinstance(windows_r, Mapping):
+            errors.append(
+                TypeError(
+                    "node_windows[{}] must be a dict {{node: (lb, ub)}},"
+                    " got {}".format(r, type(windows_r).__name__)
+                )
+            )
+            windows_r = None
+        cons_r = (node_consumption or {}).get(r, {})
+        if not isinstance(cons_r, Mapping):
+            errors.append(
+                TypeError(
+                    "node_consumption[{}] must be a dict {{node: c}},"
+                    " got {}".format(r, type(cons_r).__name__)
+                )
+            )
+            cons_r = {}
+        # Windows are only enforced by the window policies; with 'additive'
+        # (the default!) they would be silently ignored -- reject instead of
+        # returning window-violating paths without warning.
+        if policy == "additive" and windows_r:
+            errors.append(
+                TypeError(
+                    "node_windows[{r}] is set but window_policy[{r}] resolves"
+                    " to 'additive' (the default): the windows would be"
+                    " silently ignored. Set window_policy[{r}] to"
+                    " 'window_wait' or 'window_hard'.".format(r=r)
+                )
+            )
+        # Window policies need a finite horizon (rejection sentinel must
+        # exceed max_res[r]; REF_bwd computes max_res[r] - ub)
+        if policy in ("window_wait", "window_hard") and not isfinite(
+            float(max_res[r])
+        ):
+            errors.append(
+                TypeError(
+                    "window_policy[{}] = '{}' requires a finite"
+                    " max_res[{}]".format(r, policy, r)
+                )
+            )
+        cons_vals = []
+        for name, c in cons_r.items():
+            if name not in G.nodes:
+                errors.append(
+                    TypeError(
+                        "node_consumption[{}] key {} is not a node of"
+                        " G".format(r, name)
+                    )
+                )
+            try:
+                cons_vals.append(float(c))
+            except (TypeError, ValueError):
+                errors.append(
+                    TypeError(
+                        "node_consumption[{}][{}] must be a number, got"
+                        " {!r}".format(r, name, c)
+                    )
+                )
+        if r == c_res:
+            if policy != "additive":
+                errors.append(
+                    TypeError(
+                        "Critical resource {} must keep policy"
+                        " 'additive'".format(r)
+                    )
+                )
+            if any(c != 0 for c in cons_vals):
+                errors.append(
+                    TypeError(
+                        "Critical resource {} must have zero"
+                        " node_consumption".format(r)
+                    )
+                )
+        if windows_r is not None:
+            _check_window_dict(
+                G, "node_windows[{}]".format(r), windows_r, max_res, r, errors
+            )
+        if (
+            policy == "additive"
+            and any(c < 0 for c in cons_vals)
+            and min_res[r] > 0
+        ):
+            LOG.warning(
+                "Resource %s: negative node_consumption with min_res > 0;"
+                " the final (non-soft) feasibility check may reject all"
+                " labels. For visit flags use min_res[r] = -(max visits).",
+                r,
+            )
+
+    # --- direction restrictions ---
+    hard_res = [r for r, p in policies.items() if p == "window_hard"]
+    if hard_res and direction != "forward":
+        errors.append(
+            TypeError(
+                "window_policy 'window_hard' (resources {}) requires"
+                " direction='forward' (backward/join extensions only track"
+                " upper bounds)".format(hard_res)
+            )
+        )
+    has_wait = time_windows is not None or any(
+        p == "window_wait" for p in policies.values()
+    )
+    if has_wait and direction == "backward":
+        LOG.warning(
+            "direction='backward' with window resources: reported"
+            " consumed_resources for window resources are on the reversed"
+            " time axis (g = max_res[r] - latest start time)."
+        )
+    if errors:
+        raise Exception("\n".join("{}".format(item) for item in errors))
+
+
+def _check_window_dict(G, what, windows, max_res, r, errors):
+    """Validate one {node: (lb, ub)} dictionary for resource ``r``."""
+    for name, bounds in windows.items():
+        if name not in G.nodes:
+            errors.append(
+                TypeError("{} key {} is not a node of G".format(what, name))
+            )
+            continue
+        try:
+            a, b = bounds
+        except (TypeError, ValueError):
+            errors.append(
+                TypeError(
+                    "{}[{}] must be a (lower, upper) pair".format(what, name)
+                )
+            )
+            continue
+        try:
+            a, b = float(a), float(b)
+        except (TypeError, ValueError):
+            errors.append(
+                TypeError(
+                    "{}[{}]: bounds must be numbers, got {!r}".format(
+                        what, name, bounds
+                    )
+                )
+            )
+            continue
+        if a > b:
+            errors.append(
+                TypeError(
+                    "{}[{}]: lower bound {} > upper bound {}".format(
+                        what, name, a, b
+                    )
+                )
+            )
+        if b > max_res[r]:
+            LOG.warning(
+                "%s[%s]: upper bound %s exceeds max_res[%s]=%s; the engine"
+                " bound is the binding one (value used as given, no clamp).",
+                what,
+                name,
+                b,
+                r,
+                max_res[r],
+            )
 
 
 def check_seed(seed, algorithm=None):

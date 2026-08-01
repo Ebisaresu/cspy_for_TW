@@ -150,6 +150,86 @@ For a simple example of custom REFs, please see the `unittest`_.
 
 For more advanced examples, see the `examples`_ folder.
 
+Native node windows (time windows without Python callbacks)
+***********************************************************
+
+For the common case of *node resource windows* -- most prominently time
+windows with waiting and service times -- :class:`BiDirectional` ships a
+native C++ REF (``NodeWindowREF``) so that no Python callback is invoked
+inside the labelling loop. This matters e.g. for column generation pricing,
+where the SWIG director round-trip of a Python ``REF_callback`` dominates the
+run time.
+
+Simple interface (time windows):
+
+.. code-block:: python
+
+        from cspy import BiDirectional
+
+        # res[0] = monotone critical resource (e.g. edge count,
+        #          res_cost[0] = 1 on every edge)
+        # res[1] = time; res_cost[1] = travel time
+        alg = BiDirectional(
+            G, max_res, min_res,
+            time_windows={node: (a, b) for ...},   # original node names
+            service_times={node: s for ...},       # optional, s >= 0
+            time_res=1,                            # default
+        )
+
+The propagated value of the time resource is the *service start time* at each
+node: ``T_head = max(a_head, T_tail + s_tail + t_edge)``, waiting until
+``a_head`` on early arrival and rejecting when the start would exceed
+``b_head``. The arrival-then-service convention (windows checked on arrival,
+value = departure time) is feasibility-equivalent with the same parameters via
+``D_v = T_v + s_v``; only the reported resource value differs by ``+s_v``.
+
+General interface: per-resource policies via ``window_policy``
+(``'additive'`` (default) / ``'window_wait'`` / ``'window_hard'``),
+``node_windows={r: {node: (lb, ub)}}`` and
+``node_consumption={r: {node: c}}``. ``additive`` adds the head node's
+consumption on arrival (visit flags: ``c = -1`` with ``min_res[r] <= -1``);
+window policies add the tail node's consumption on departure (service time).
+
+Requirements and caveats:
+
+1. The critical resource (``res[0]`` by default) must stay additive and
+   monotone with zero node consumption -- as for any custom REF. Positive
+   ``res_cost`` on every edge for the critical resource is recommended.
+   ``find_critical_res=True`` cannot be combined with native windows.
+   Note ``min_res[0]`` acts as the halfway-point floor of the bidirectional
+   search, *not* as a lower bound at the Sink.
+2. ``REF_callback`` and native windows are mutually exclusive; as with
+   ``REF_callback``, graph pruning (``preprocess=True``) is skipped.
+3. ``direction='both'`` and ``'backward'`` are natively supported for
+   ``window_wait``. For ``direction='both'`` the reported window resource in
+   ``consumed_resources`` is a feasibility surrogate (forward start time plus
+   reversed backward value), not the service start time at the Sink; for
+   ``direction='backward'`` it is on the reversed time axis. Use
+   ``direction='forward'`` when the actual schedule value matters.
+4. ``window_hard`` (reject early arrivals instead of waiting) requires
+   ``direction='forward'``: backward extensions can only track upper bounds.
+5. ``min_res[time_res] = 0`` is recommended: positive lower bounds on
+   non-critical resources are only enforced at the final feasibility check,
+   *and* when such a lower bound is binding the engine's dominance rule
+   (component-wise ``<=``) may discard the label that would satisfy it --
+   a suboptimal path or a spurious "no solution" can result.
+6. ``max_res[r]`` must be *finite* for every resource with a window policy
+   (enforced at construction): the internal rejection sentinel must exceed
+   ``max_res[r]``, which is impossible with ``inf``.
+7. Numerical tolerances are asymmetric: node-window comparisons use
+   ``window_eps`` (default ``1e-9``), but the engine's global
+   ``max_res``/``min_res`` feasibility checks are exact. A path within
+   ``~window_eps`` of the horizon can therefore still be rejected by the
+   engine -- borderline solutions are dropped on the safe (infeasible) side.
+8. When no feasible path exists the result is *degenerate* and
+   direction-dependent (``'forward'``: ``path == ['Source']`` with
+   ``total_cost == 0.0``; ``'both'``: ``path is None``; ``'backward'``:
+   ``path == ['Sink']``) -- pre-existing engine behaviour. Check
+   ``path is None or len(path) <= 1 or path[0] != 'Source' or
+   path[-1] != 'Sink'`` before interpreting ``total_cost`` (crucial in
+   column generation, where ``0.0`` would be misread as "no improving
+   column").
+
 
 .. _jpath: https://github.com/torressa/cspy/tree/master/examples/jpath
 .. _cgar: https://github.com/torressa/cspy/blob/master/examples/cgar/cgar.pdf

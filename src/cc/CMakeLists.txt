@@ -6,7 +6,8 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.h.in
 
 target_sources(
   BiDirectionalCpp PRIVATE bidirectional.cc digraph.cc labelling.cc
-                           preprocessing.cc search.cc ref_callback.cc)
+                           preprocessing.cc search.cc ref_callback.cc
+                           node_window_ref.cc)
 
 target_include_directories(
   BiDirectionalCpp
