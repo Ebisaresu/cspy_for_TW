@@ -27,6 +27,17 @@
 
 A collection of algorithms for the (resource) Constrained Shortest Path (CSP) problem.
 
+> **This is a fork.** [`Ebisaresu/cspy_for_TW`](https://github.com/Ebisaresu/cspy_for_TW)
+> is a fork of [`torressa/cspy`](https://github.com/torressa/cspy) (MIT) which adds
+> native C++ support for time windows, and more generally for per-node resource
+> windows, to the bidirectional labeling algorithm. See
+> [Time windows (this fork)](#time-windows-this-fork).
+>
+> These additions are **not on PyPI**: `pip install cspy` installs the upstream
+> package and does not contain them, so this fork has to be
+> [built from source](#installing-this-fork). The badges above are the upstream
+> repository's, and do not reflect the state of this fork.
+
 Documentation [here](https://torressa.github.io/cspy/).
 
 The CSP problem was popularised by [Inrich and Desaulniers (2005)](https://www.researchgate.net/publication/227142556_Shortest_Path_Problems_with_Resource_Constraints). It was initially introduced as a subproblem for the bus driver scheduling problem, and has since then widely studied in a variety of different settings including: the vehicle routing problem with time windows (VRPTW), the technician routing and scheduling problem, the capacitated arc-routing problem, on-demand transportation systems, and, airport ground movement; among others.
@@ -80,6 +91,10 @@ or
 ```none
 python3 -m pip install cspy
 ```
+
+Note that this installs the upstream package from PyPI, which does **not** include
+this fork's native time windows. Those require a
+[source build](#installing-this-fork).
 
 ### Quick start
 
@@ -178,6 +193,142 @@ double cost = alg.getTotalCost();
 
 - [`vrpy`](https://github.com/Kuifje02/vrpy) : External vehicle routing framework which uses `cspy` to solve different variants of the vehicle routing problem using column generation. Particulatly, see  [`subproblem_cspy.py`](https://github.com/Kuifje02/vrpy/blob/master/vrpy/subproblem_cspy.py).
 - [`jpath`](examples/jpath) : Simple example showing the necessary graph adptations and the use of custom resource extension functions.
+
+
+## Time windows (this fork)
+
+Everything in this section is specific to
+[`Ebisaresu/cspy_for_TW`](https://github.com/Ebisaresu/cspy_for_TW), and is
+released under the same MIT terms as the upstream code it extends (the original
+[LICENSE.txt](LICENSE.txt) is kept unchanged). Please report bugs in these
+additions on the
+[fork's issue tracker](https://github.com/Ebisaresu/cspy_for_TW/issues): the
+[Issues](#issues) and [Seeking Support](#seeking-support) sections below are
+upstream's and refer to upstream `cspy`.
+
+Upstream, time windows have to be written as a Python `REF_callback`, which is
+called through the SWIG director on every label extension, and which needs
+consistent backward and join REFs of its own before `direction="both"` can be used.
+This fork adds a native (C++, non-director) resource extension function,
+[`NodeWindowREF`](src/cc/node_window_ref.h). Each resource `r` carries a
+per-node window `[lb_r(v), ub_r(v)]`, a per-node consumption `c_r(v)`, and one of
+three propagation policies:
+
+| Policy | Propagation along edge `(i, j)` | Use |
+|:-------|---------------------------------|-----|
+| `additive` (default) | `T + t_ij + c_r(j)`, `c_r(j)` added on arrival at the head | Backward compatible (identical to the default REF when `c_r` is 0). `c_r(v) = -1` gives a visit flag, `+1` a visit counter |
+| `window_wait` | `max(lb_r(j), T + c_r(i) + t_ij)`, rejected if above `ub_r(j)`; `c_r(i)` added on departure from the tail | Time-like: early arrivals wait until `lb_r(j)` |
+| `window_hard` | rejected whenever `T + c_r(i) + t_ij` falls outside `[lb_r(j), ub_r(j)]` | Resources where early arrival must be rejected instead of waiting (`direction="forward"` only) |
+
+Time windows are then the special case of `window_wait` on the time resource with
+`lb = a_v`, `ub = b_v` and `c_r(v) = s_v` (service time), giving the usual
+`T_j = max(a_j, T_i + s_i + t_ij)` rejected when `T_j > b_j`. Only the resource
+extension hooks (`REF_fwd`, `REF_bwd`, `REF_join`) are implemented: there are no
+changes to the dominance rules or to the halfway-point logic, and
+`direction="both"` is supported. The existing `REF_callback` mechanism and the
+rest of the API are unchanged. The one other C++ change is a pair of defensive
+null guards in `joinLabels()`
+([`src/cc/bidirectional.cc`](src/cc/bidirectional.cc)), which fix an upstream
+segfault reachable with `direction="both"` and a binding `min_res` on a
+non-critical resource, independently of time windows.
+
+### Installing this fork
+
+This fork is not published on PyPI, so it has to be built from source. This needs
+[CMake](https://cmake.org/download/), a standard C++ toolchain and
+[SWIG](https://www.swig.org/), the last of which is missing from the upstream
+requirements list under [Building](#building) below:
+
+```none
+cmake -S . -Bbuild -DBUILD_PYTHON=ON
+cmake --build build
+python3 -m pip install build/python/dist/cspy-*.whl
+```
+
+The full procedure, including how to rebuild after changing the C++ side, is in
+[`NATIVE_TW_GUIDE.md`](tsptw_example/NATIVE_TW_GUIDE.md#7-rebuild-procedure).
+
+### Quick start (time windows)
+
+```python
+# Imports
+from cspy import BiDirectional
+from networkx import DiGraph
+
+# res[0] = edge counter (critical resource, stays additive), res[1] = time
+max_res, min_res = [10, 20], [0, 0]
+# Create a DiGraph
+G = DiGraph(directed=True, n_res=2)
+G.add_edge("Source", "A", res_cost=[1, 2], weight=0)
+G.add_edge("Source", "B", res_cost=[1, 5], weight=0)
+G.add_edge("A", "B", res_cost=[1, 3], weight=-10)
+G.add_edge("B", "A", res_cost=[1, 3], weight=-10)
+G.add_edge("A", "Sink", res_cost=[1, 2], weight=0)
+G.add_edge("B", "Sink", res_cost=[1, 2], weight=0)
+
+# init algorithm with time windows (a_v, b_v) and service times s_v
+bidirec = BiDirectional(G, max_res, min_res, direction="forward", elementary=True,
+                        time_windows={"A": (0, 4), "B": (8, 12)},
+                        service_times={"A": 1, "B": 1})
+
+# Call and query attributes
+bidirec.run()
+print(bidirec.path)
+print(bidirec.total_cost)
+print(bidirec.consumed_resources)
+```
+
+Output:
+
+```none
+['Source', 'A', 'B', 'Sink']
+-10.0
+[3.0, 11.0]
+```
+
+`Source -> B -> A -> Sink` is rejected because the label first waits at `B` until
+`a_B = 8`, so service at `A` would start at `8 + 1 + 3 = 12 > b_A = 4`. On
+`Source -> A -> B -> Sink` the same wait at `B` is feasible and the label reaches
+the sink at time `11`. Nodes missing from `time_windows`/`service_times` default
+to `(0, max_res[time_res])` and `0` respectively.
+
+Two requirements are easy to miss: `res[0]` (the critical resource, index `0` by
+default) must remain a monotone additive resource, e.g. an edge counter with
+`res_cost[0] = 1` everywhere; and `max_res[r]` must be finite for any resource that
+carries a window. Native windows cannot be combined with `REF_callback` or
+`find_critical_res=True`, and `preprocess=True` becomes a no-op. Only
+`direction="forward"` reports the actual service start times in
+`consumed_resources`; the full list of caveats is in
+[`NATIVE_TW_GUIDE.md`](tsptw_example/NATIVE_TW_GUIDE.md).
+
+### General interface
+
+`time_windows`/`service_times`/`time_res` are syntactic sugar for the general
+arguments `node_windows={r: {node: (lb, ub)}}`, `node_consumption={r: {node: c_v}}`
+and `window_policy={r: "additive"|"window_wait"|"window_hard"}` (plus
+`window_eps`), which apply windows, node consumptions and policies to any
+resource, including `additive` with `c_r(v) = -1` to express visit flags.
+
+### Performance
+
+Measured on ESPPRC-TW pricing instances with `elementary=True`. Against an
+equivalent Python `REF_callback`, dropping the Python boundary is worth 1.3-1.9x
+in forward search on small instances and only 1.0-1.1x on larger ones, where the
+labeling core's dominance checks dominate the run time. The larger effect is
+`direction="both"`, which the native REFs provide out of the box instead of
+requiring hand-written backward and join REFs: on CVRPTW pricing with a tight
+critical resource (n = 50, at most 4 customers per route), the same native run
+takes 8.1 s with `direction="forward"` and 30 ms with `direction="both"`. With a
+loose bound on the critical resource, `both` is instead several times slower than
+`forward`, so the direction has to be chosen per instance. Full tables are in
+[`NATIVE_TW_GUIDE.md`](tsptw_example/NATIVE_TW_GUIDE.md).
+
+### Further reading
+
+- [`tsptw_example/NATIVE_TW_GUIDE.md`](tsptw_example/NATIVE_TW_GUIDE.md) : guide to this native implementation, with the full API reference, REF formulas, rebuild steps, benchmarks and limitations.
+- [`tsptw_example/TSPTW_GUIDE.md`](tsptw_example/TSPTW_GUIDE.md) : teaching guide on solving TSPTW exactly with a Python REF, and the modelling background (visit flags, dominance) both interfaces share.
+- [`tsptw_example/tsptw_cspy.py`](tsptw_example/tsptw_cspy.py) : runnable TSPTW example.
+- [`test/python/tests_native_time_windows.py`](test/python/tests_native_time_windows.py) : regression tests for the native interface.
 
 
 ## Building
