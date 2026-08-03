@@ -188,6 +188,20 @@ visited sets coincide," making dominance sound. The direction is essential:
 the reverse, $0 \to +1$, flips the direction of containment (⊆), leaving in
 place exactly the "domination by a subset label" we wanted to eliminate.
 
+**This fork now offers the same fix as a built-in option.** Passing
+`require_all_visits=True` (with `elementary=True` and
+`direction='forward'`) makes the engine itself require that two labels
+visit exactly the same required nodes before one may dominate the other,
+and refuse any extension into the `Sink` from a label that has not yet
+visited them all. It is the same pruning rule as the visit flags — the
+visited set is simply held as a bit set on the label instead of being
+spelled out as one resource per customer — so the resource vector stays at
+`n_res=2` and no `res_cost` array has to be widened. This teaching example
+keeps the hand-built flag encoding, because seeing *why* the flags work is
+the point of the exercise; for production use prefer the option. See
+`NATIVE_TW_GUIDE.md` Section 9 for the interface and the soundness
+argument.
+
 ### 4.3 The Signature of REF_fwd
 
 In the installed cspy's SWIG-generated code

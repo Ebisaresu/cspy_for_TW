@@ -49,6 +49,7 @@ using namespace bidirectional;
 %rename("%s") bidirectional::BiDirectional::setBoundsPruning;
 %rename("%s") bidirectional::BiDirectional::setFindCriticalRes;
 %rename("%s") bidirectional::BiDirectional::setCriticalRes;
+%rename("%s") bidirectional::BiDirectional::setRequiredNodes;
 %rename("%s") bidirectional::BiDirectional::setREFCallback;
 %rename("%s") bidirectional::BiDirectional::setTwoCycleElimination;
 /* Expose getters */

@@ -26,6 +26,12 @@ Label::Label(
     // Insert elements of partial_path
     unreachable_nodes.insert(partial_path.cbegin(), partial_path.cend());
   }
+  if (params_ptr->require_all_visits) {
+    // Build the bit set of required nodes visited by the partial path.
+    required_visited_mask.reset(params_ptr->required_words);
+    for (const int& u : partial_path)
+      setRequiredVisitBit(u);
+  }
 };
 
 Label::Label(
@@ -42,6 +48,38 @@ Label::Label(
           partial_path_in,
           params_ptr_in) {
   setPhi(phi_in);
+}
+
+Label::Label(
+    const double&                weight_in,
+    const bidirectional::Vertex& vertex_in,
+    const std::vector<double>&   resource_consumption_in,
+    const std::vector<int>&      partial_path_in,
+    bidirectional::Params*       params_ptr_in,
+    const Label&                 parent)
+    : weight(weight_in),
+      vertex(vertex_in),
+      resource_consumption(resource_consumption_in),
+      partial_path(partial_path_in),
+      params_ptr(params_ptr_in) {
+  if (params_ptr->elementary) {
+    // Insert elements of partial_path
+    unreachable_nodes.insert(partial_path.cbegin(), partial_path.cend());
+  }
+  if (params_ptr->require_all_visits) {
+    // The partial path is the one of `parent` followed by `vertex_in`, so
+    // the bit set only needs the parent bit set plus at most one bit.
+    required_visited_mask = parent.required_visited_mask;
+    if (required_visited_mask.size() != params_ptr->required_words)
+      required_visited_mask.reset(params_ptr->required_words);
+    setRequiredVisitBit(vertex_in.user_id);
+  }
+}
+
+void Label::setRequiredVisitBit(const int& user_id) {
+  const auto it = params_ptr->required_bit_by_user_id.find(user_id);
+  if (it != params_ptr->required_bit_by_user_id.end())
+    required_visited_mask.setBit(it->second);
 }
 
 /* Public methods */
@@ -89,13 +127,15 @@ Label Label::extend(
           weight);
     }
   }
-  // Create new label
+  // Create new label. `*this` is passed as the parent so that the
+  // required-visit bit set is inherited instead of rebuilt.
   Label new_label(
       weight + adjacent_vertex.weight,
       new_node,
       new_resources,
       new_partial_path,
-      params_ptr);
+      params_ptr,
+      *this);
   // Check feasibility (soft=true) before returning label
   if (new_label.checkFeasibility(max_res, min_res, true)) {
     return new_label;
@@ -191,7 +231,27 @@ bool Label::checkSameFeasibleExtensionElementary(const Label& other) const {
   return true;
 }
 
+bool Label::checkAllRequiredVisited() const {
+  const int n_words = params_ptr->required_words;
+  if (required_visited_mask.size() != n_words)
+    return false;
+  const std::uint64_t* visited = required_visited_mask.words();
+  for (int i = 0; i < n_words; ++i)
+    if (visited[i] != params_ptr->required_mask_full[i])
+      return false;
+  return true;
+}
+
+bool Label::checkSameRequiredVisits(const Label& other) const {
+  return required_visited_mask == other.required_visited_mask;
+}
+
 bool Label::checkSameFeasibleExtension(const Label& other) const {
+  // Mandatory visits: a label may only dominate another label that visits
+  // exactly the same required nodes. Guarded, hence a no-op by default.
+  if (params_ptr->require_all_visits && !checkSameRequiredVisits(other)) {
+    return false;
+  }
   if (params_ptr->elementary) {
     return checkSameFeasibleExtensionElementary(other);
   }

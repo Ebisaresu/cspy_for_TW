@@ -3,8 +3,7 @@
 Intended audience: students and researchers who have finished
 [`TSPTW_GUIDE.md`](./TSPTW_GUIDE.md) and are moving on to the pricing problem
 (ESPPRC-TW) of column generation / Branch-and-Price.
-Target code: branch `feature/native-time-windows` (a fork of cspy v1.0.3,
-`/Users/azzqi/workspace/cspy`). All notation ($T_i, a_i, b_i, s_i, t_{ij}$,
+Target code: this fork of cspy v1.0.3. All notation ($T_i, a_i, b_i, s_i, t_{ij}$,
 `res[0]` = critical resource, sentinel, dominance, degenerate path) is shared
 with TSPTW_GUIDE.md.
 
@@ -186,7 +185,10 @@ print("    == simple interface:", ref.path == alg.path
 #     visit counter (res[4]: +1). min_res[4]=2 means "2 customers visited by
 #     the time Sink is reached" (enforced only at the final feasibility check).
 #     The flags are required to restrict dominance to matching visit sets
-#     (TSPTW_GUIDE.md Section 4.2).
+#     (TSPTW_GUIDE.md Section 4.2). Section 9 asks for the same thing with
+#     require_all_visits=True and no extra resources; this encoding is kept
+#     as the reference implementation that the Section 9 core code is
+#     checked against.
 alg = BiDirectional(build(5), max_res=[10.0, 20.0, 0.0, 0.0, 10.0],
                     min_res=[0.0, 0.0, -1.0, -1.0, 2.0],
                     direction="forward", elementary=True,
@@ -223,6 +225,16 @@ Output (actual output):
 resources show flags $-1, -1$ and counter $2$. (3) disallows waiting, so
 customer 2 becomes unreachable and only the route through customer 1 is
 returned.
+
+Example (2) is kept in this guide as a **reference implementation, not as
+the recommended way of asking for full coverage**. It shows that the general
+interface is expressive enough to reproduce the visit indicator encoding of
+`TSPTW_GUIDE.md` Section 4.2 without a Python resource extension function,
+and it is the yardstick the core implementation is measured against. To
+actually require coverage, use `require_all_visits=True` (Section 9): it
+expresses the same requirement with no extra resources, it cannot be
+mis-assembled, and Section 9.4 shows the two return the same answers while
+the encoding gets steadily slower as the number of customers grows.
 
 ### 3.3 Advanced: using NodeWindowREF directly
 
@@ -322,19 +334,39 @@ consumption, 1 if it is 0) under a **floating-point equality comparison**.
 operations in the same combining order** and returns it, matching bit for
 bit so the fix-up never fires.
 
-### 4.3 Why the core is left unmodified
+### 4.3 Why the core is left unmodified for the window resources
 
-`labelling.cc` / `digraph.cc` are untouched, and the diff to
-`bidirectional.cc` is only the two null guards described below. (1)
-**Backward compatibility**: since only the REF, the engine's officially
-sanctioned extension point, is used, the existing search / dominance /
-bidirectional logic cannot change behaviour, and the existing Python test
-suite passes exactly as before. (2) **Verifiability**: it is possible to
-brute-force check that "native and a Python director REF implementing the
-same formulas return **bit-identical** output" (already done, roughly 2600
-checks in total, all passing). Touching the core would move the goalposts of
-that comparison. (3) **Staying close to upstream**: a smaller diff makes it
-easier to track updates to upstream cspy, and easier to turn into a PR.
+For the node windows themselves, `labelling.cc` / `digraph.cc` are
+untouched, and the diff to `bidirectional.cc` is only the two null guards
+described below. (1) **Backward compatibility**: since only the REF, the
+engine's officially sanctioned extension point, is used, the existing search
+/ dominance / bidirectional logic cannot change behaviour, and the existing
+Python test suite passes exactly as before. (2) **Verifiability**: it is
+possible to brute-force check that "native and a Python director REF
+implementing the same formulas return **bit-identical** output" (already
+done, roughly 2600 checks in total, all passing). Touching the core would
+move the goalposts of that comparison. (3) **Staying close to upstream**: a
+smaller diff makes it easier to track updates to upstream cspy, and easier
+to turn into a PR.
+
+The mandatory-visit feature of Section 9 is the one deliberate exception to
+this rule, for two reasons that do not apply to the window resources.
+First, a resource extension function cannot express the required change:
+the rule that has to change is the **dominance** rule, and a resource
+extension function has no access to it. Encoding the visit set in
+resources, as Section 3.2 example (2) does, works, but it makes the
+resource vector grow with the number of customers, so every dominance
+comparison costs one floating-point comparison per customer and every label
+carries eight bytes per customer. Second, and this is what makes the
+exception acceptable, the core change is provably **the same pruning
+predicate** as the resource encoding, only represented as a bit set instead
+of a vector of doubles (Section 9.4). The resource encoding therefore
+remains available as a reference implementation, and the two are compared
+against each other, and against exhaustive enumeration, in the test suite.
+All new code paths sit inside an `if (require_all_visits)` guard, no
+existing expression or branch was rewritten, and the resulting binary was
+checked to produce byte-identical output to the pre-change build on 3222
+solver runs with the feature switched off.
 
 ### 4.4 SWIG ownership
 
@@ -347,6 +379,13 @@ the Python-director `REF_callback`, which transfers ownership to C++ via
 `__disown__`. If you construct `NodeWindowREF` yourself as in Section 3.3,
 keep the object alive for the lifetime of the `BiDirectional` object (do not
 call `__disown__`).
+
+The wrapper also keeps a plain reference to a user supplied `REF_callback`
+in `self._ref_callback`. The C++ side only stores a raw pointer, so
+`BiDirectional(..., REF_callback=MyCallback())` with a temporary used to let
+the callback be collected before `run()` and crash the interpreter with a
+segmentation fault; the reference removes that trap. It does not change what
+the search computes.
 
 ## 5. Benchmark results (measured)
 
@@ -551,7 +590,7 @@ After changing the C++ side (`src/cc/`), rebuild the wheel and reinstall it
 into the venv.
 
 ```console
-$ cd /Users/azzqi/workspace/cspy
+$ cd <repository root>
 $ cmake -S . -Bbuild -DBUILD_PYTHON=ON     # first time only (no-op if already configured)
 $ cmake --build build -j2                  # incremental build (keep -j2 on M1 8GB)
 $ .venv/bin/pip install --force-reinstall \
@@ -563,22 +602,49 @@ The build automatically runs SWIG wrapper generation → C++ compilation →
 Verify it with the bundled tests (actual output):
 
 ```console
-$ cd /Users/azzqi/workspace/cspy/test/python
+$ cd test/python
 $ ../../.venv/bin/python3 -m unittest tests_native_time_windows
 .node_windows[0][2]: upper bound 12.0 exceeds max_res[0]=10.0; the engine bound is the binding one (value used as given, no clamp).
-......................direction='backward' with window resources: reported consumed_resources for window resources are on the reversed time axis (g = max_res[r] - latest start time).
-........
+.......................direction='backward' with window resources: reported consumed_resources for window resources are on the reversed time axis (g = max_res[r] - latest start time).
+........No negative cost cycle has been found and elementary set to true.
+Consider setting elementary to false.
+No negative cost cycle has been found and elementary set to true.
+Consider setting elementary to false.
+No negative cost cycle has been found and elementary set to true.
+Consider setting elementary to false.
+No negative cost cycle has been found and elementary set to true.
+Consider setting elementary to false.
+.No negative cost cycle has been found and elementary set to true.
+Consider setting elementary to false.
+No negative cost cycle has been found and elementary set to true.
+Consider setting elementary to false.
+No negative cost cycle has been found and elementary set to true.
+Consider setting elementary to false.
+.No negative cost cycle has been found and elementary set to true.
+Consider setting elementary to false.
+No negative cost cycle has been found and elementary set to true.
+Consider setting elementary to false.
+.....No negative cost cycle has been found and elementary set to true.
+Consider setting elementary to false.
+......No negative cost cycle has been found and elementary set to true.
+Consider setting elementary to false.
+....................
 ----------------------------------------------------------------------
-Ran 31 tests in 0.045s
+Ran 65 tests in 0.141s
 
 OK
 ```
 
-(The two warning-log lines in the middle are expected output from test
-cases that deliberately trigger a warning.) The existing full suite
-(`test/python/`, 77 tests) is also expected to pass entirely (the only
-pre-existing failures are the 4 PSOLGENT numpy-2.x incompatibilities).
+(The warning-log lines in the middle are expected output from test cases
+that deliberately trigger a warning.) The full suite
+(`python3 -m unittest discover -p "tests_*.py"` in `test/python/`, 142
+tests) is also expected to pass entirely, the only pre-existing failures
+being the 4 PSOLGENT numpy-2.x incompatibilities and one skip.
 `dotnet/` (the C# bindings) is out of scope for the build.
+
+Note that adding a method to the SWIG interface (as
+`setRequiredNodes`, Section 9, did) makes a rebuild mandatory: a stale
+wheel left in the venv surfaces as `AttributeError`, not as a build error.
 
 ## 8. Limitations and caveats
 
@@ -605,7 +671,9 @@ pre-existing failures are the 4 PSOLGENT numpy-2.x incompatibilities).
    semantics). If a binding `min_res` is unavoidable, e.g. to force full
    coverage, pairing it with a **visit-flag resource** as in Section 3.2 (2)
    restricts dominance to matching visit sets and restores soundness (a
-   bare counter without flags is unsound).
+   bare counter without flags is unsound). To force full coverage, prefer
+   `require_all_visits=True` (Section 9), which needs neither the counter
+   nor the flags.
 7. **The window-resource value in `consumed_resources`**: only
    `direction='forward'` gives the actual service start time. `'both'`
    gives a feasibility-check surrogate ($T^{\mathrm{start}} + g$), and
@@ -634,14 +702,432 @@ pre-existing failures are the 4 PSOLGENT numpy-2.x incompatibilities).
     keeps the REF alive via the keepalive attribute, but with the direct
     construction of Section 3.3 you must hold the reference yourself.
 
+## 9. Mandatory visits (`require_all_visits`)
+
+### 9.1 The problem: coverage used to be assembled by hand
+
+Nothing in a labelling algorithm asks for a path that *covers* a given set
+of nodes. It asks for a shortest path subject to resource bounds, and a path
+that skips a customer is normally shorter than one that does not. Before
+this option, the only way to force coverage was to encode it in resources,
+the way example (2) of Section 3.2 does and `TSPTW_GUIDE.md` Sections 3.2
+and 4.2 explain at length. For $n$ customers that means assembling three
+things by hand:
+
+1. one **visit indicator resource per customer** — `additive` policy,
+   consumption $-1$ at that customer, `max_res` $=0$ and `min_res` $=-1$, so
+   the resource reads $0$ while the customer is unvisited and $-1$ once it
+   has been visited;
+2. one **visit counter resource** — consumption $+1$ at every customer and
+   `min_res` $= n$, which is what actually rejects an incomplete path when
+   the sink is reached;
+3. a `res_cost` array widened to length $n+3$ on **every edge** of the
+   graph.
+
+Three things are wrong with that.
+
+- **The resource vector grows with the instance.** Dominance compares
+  resource vectors component by component, so each comparison costs $n+3$
+  floating-point comparisons instead of two, and each label carries
+  $8(n+3)$ bytes of resource data instead of 16. Section 9.4 measures the
+  result.
+- **Every step of the assembly fails silently.** Widening `res_cost` on all
+  but one edge, leaving an indicator's `min_res` at $0$, or putting the
+  counter's bound on the wrong index each produce a perfectly well-formed
+  run that returns a plausible but wrong answer. Nothing raises, because
+  each of these is a legitimate resource-constrained shortest path model —
+  just not the intended one.
+- **The requirement never appears in the model.** "Visit every customer" is
+  spread across three sets of numbers, none of which says so.
+
+The indicator resources are not decoration. They are what makes the
+dominance rule sound (Section 9.3); dropping them and keeping only the
+counter yields a search that reports no solution on instances that have one.
+
+`require_all_visits=True` replaces all three steps. The resource vector
+stays at the two resources the model actually needs, the critical edge-count
+resource and time.
+
+### 9.2 Using `require_all_visits` (executed code)
+
+| Argument | Type / default | Meaning |
+|---|---|---|
+| `require_all_visits` | `bool` / `False` | When true, only `Source` -> `Sink` paths that visit every node of `required_nodes` are accepted, and dominance is restricted to match (Section 9.3). Requires `direction='forward'` and `elementary=True` |
+| `required_nodes` | iterable of node labels / `None` | The nodes that must be visited, given as the **original node labels** of `G` (not the internal integer identifiers). Duplicates are ignored and the order is irrelevant. `None` means every node other than `'Source'` and `'Sink'`. Only usable together with `require_all_visits=True` |
+
+The instance below is the six-customer TSPTW of
+[`tsptw_cspy.py`](./tsptw_cspy.py), whose optimum is known independently by
+exhaustive search.
+
+```python
+"""Solve a six-customer TSPTW with cspy, using two resources only."""
+import networkx as nx
+import numpy as np
+from cspy import BiDirectional
+
+n = 6
+travel = ((0, 11, 8, 5, 8, 5, 7), (9, 0, 7, 12, 3, 11, 7), (8, 12, 0, 4, 8, 3, 11),
+          (3, 4, 10, 0, 8, 3, 8), (10, 3, 3, 6, 0, 8, 4), (5, 8, 5, 12, 4, 0, 10),
+          (8, 4, 7, 5, 12, 4, 0))
+tw_a = (0, 39, 2, 38, 32, 2, 42)
+tw_b = (200, 59, 18, 60, 57, 13, 60)
+service = (0, 6, 2, 4, 5, 3, 1)
+horizon = tw_b[0]
+
+# res[0] = edge counter (critical, monotone), res[1] = time. Nothing else.
+G = nx.DiGraph(n_res=2)
+for i in range(1, n + 1):
+    G.add_edge("Source", i, res_cost=np.array([1.0, float(travel[0][i])]),
+               weight=float(travel[0][i]))
+    G.add_edge(i, "Sink", res_cost=np.array([1.0, float(travel[i][0])]),
+               weight=float(travel[i][0]))
+    for j in range(1, n + 1):
+        if i != j:
+            G.add_edge(i, j, res_cost=np.array([1.0, float(travel[i][j])]),
+                       weight=float(travel[i][j]))
+
+time_windows = {i: (float(tw_a[i]), float(tw_b[i])) for i in range(1, n + 1)}
+service_times = {i: float(service[i]) for i in range(1, n + 1)}
+
+alg = BiDirectional(
+    G,
+    [float(n + 1), float(horizon)],   # max_res
+    [0.0, 0.0],                       # min_res
+    direction="forward",              # required by require_all_visits
+    elementary=True,                  # required by require_all_visits
+    time_windows=time_windows,
+    service_times=service_times,
+    require_all_visits=True,          # <-- the new option
+    # required_nodes defaults to every node other than "Source" and "Sink"
+)
+alg.run()
+print("tour              :", " -> ".join(str(v) for v in alg.path))
+print("total travel time :", alg.total_cost)
+print("edges, return time:", alg.consumed_resources)
+
+# A proper subset may be required instead: nodes 2 and 5 are mandatory, the
+# other customers are visited only when doing so pays off.
+alg2 = BiDirectional(
+    G, [float(n + 1), float(horizon)], [0.0, 0.0],
+    direction="forward", elementary=True,
+    time_windows=time_windows, service_times=service_times,
+    require_all_visits=True,
+    required_nodes=[2, 5],
+)
+alg2.run()
+print("subset tour       :", " -> ".join(str(v) for v in alg2.path))
+print("subset cost       :", alg2.total_cost)
+
+# An unsupported search direction is refused with an actionable message.
+try:
+    BiDirectional(G, [float(n + 1), float(horizon)], [0.0, 0.0],
+                  elementary=True, require_all_visits=True)   # direction='both'
+except Exception as error:
+    print("guard             :", error)
+```
+
+Output (actual output):
+
+```text
+tour              : Source -> 2 -> 5 -> 4 -> 1 -> 6 -> 3 -> Sink
+total travel time : 33.0
+edges, return time: [7.0, 66.0]
+subset tour       : Source -> 2 -> 5 -> Sink
+subset cost       : 16.0
+guard             : require_all_visits=True requires direction='forward' (got 'both'). The backward search and the label joining step cannot yet certify that all required nodes are visited; pass direction='forward'.
+```
+
+How to read this. The first tour is the known TSPTW optimum of the instance:
+cost 33, seven edges, depot return (service start) time 66. Note that the
+time-window-free optimal tour of the same instance costs 29 and is
+infeasible here, so the windows are binding. The second run requires only
+customers 2 and 5, and since visiting anyone else only adds travel time it
+returns the two-customer tour at cost 16 — a **proper subset** is a
+meaningful request, not a degenerate one: the listed nodes must be visited
+and the rest are visited only when that pays off. The third run leaves
+`direction` at its default `'both'` and is refused in the constructor
+(Section 9.5, restriction 1).
+
+`required_nodes` accepts any iterable, including one that can be traversed
+only once (a generator expression, `map`, `filter`, `iter(...)`, a
+`csv.reader`): the argument is materialised exactly once, during validation,
+and that materialised list is what the rest of the constructor uses. An
+**empty** required set is rejected rather than quietly accepted, because it
+would turn the call back into a plain elementary shortest path solve while
+`require_all_visits=True` still reads as though the requirement were in
+force. The same applies to a graph whose only nodes are `'Source'` and
+`'Sink'`.
+
+### 9.3 Why the dominance rule has to change
+
+The engine's dominance rule prunes a label when another label at the same
+node has no larger cost, no larger value in every resource, and (under
+`elementary=True`) a visited set contained in the other's. That rule is
+sound for the elementary shortest path problem with resource constraints,
+because there any elementary completion is acceptable. It is **not** sound
+once every required node must appear on the path: a cheap label whose
+visited set is a proper subset can dominate a label whose visited set is a
+superset, and the pruned label may have been the only one that could still
+cover the remaining required nodes. The concrete failure on this instance is
+documented in `TSPTW_GUIDE.md` Section 4.2: the search reports the
+degenerate `['Source']` on an instance that has a feasible tour.
+
+The added condition is stated once, over the visited sets themselves: a
+label may only dominate another label when the two visit **exactly the same
+required nodes**. Write $V(L)$ for the set of nodes on the partial path of
+$L$ and $R$ for the required set; the condition is $V(L_1) \cap R = V(L_2)
+\cap R$.
+
+*Soundness.* Suppose $L_1$ and $L_2$ sit at the same node and satisfy
+(i) $c(L_1) \le c(L_2)$, (ii) $r(L_1) \le r(L_2)$ component-wise,
+(iii) $V(L_1) \subseteq V(L_2)$ (the existing containment condition) and
+(iv) $V(L_1) \cap R = V(L_2) \cap R$ (the new condition). Let $Q$ be any
+completion of $L_2$ to the sink that is resource feasible and covers $R$.
+Then $Q$ is also a valid completion of $L_1$: it stays elementary because
+$Q \cap V(L_2) = \emptyset$ and $V(L_1) \subseteq V(L_2)$; it stays
+resource feasible because the resource extension functions are monotone, so
+$r(L_1) \le r(L_2)$ propagates along $Q$; and it still covers $R$, because
+any $x \in R$ not on $Q$ lies in $V(L_2) \cap R = V(L_1) \cap R$. Finally
+$c(L_1) + c(Q) \le c(L_2) + c(Q)$. So discarding $L_2$ cannot lose an
+optimal solution.
+
+*Why equality rather than containment.* What the coverage argument actually
+needs is only $V(L_2) \cap R \subseteq V(L_1)$; the opposite inclusion
+already follows from the existing condition (iii). Imposing equality is
+therefore never more aggressive than the minimal condition, it reduces to a
+single comparison of two bit sets, and it coincides exactly with what the
+visit indicator encoding imposes.
+
+The terminal condition is the other half: an extension into the sink is
+refused unless the label already covers $R$. This loses nothing, because
+the optimal path covers $R$ at the node before the sink, and every refused
+label would have produced a path that does not cover $R$. With
+`direction='forward'` the search is complete (the halfway-point cut-off in
+`checkBounds` only fires for `direction='both'`), so global optimality
+follows directly.
+
+### 9.4 Relation to the visit indicator encoding, and what it costs
+
+**The two are the same pruning rule.** In the encoding of Section 3.2 (2),
+"every resource $\le$" over the indicator resources means $V(L_1) \supseteq
+V(L_2)$ (the indicators are decremented, which reverses the direction), and
+the containment condition (iii) means $V(L_1) \subseteq V(L_2)$; together
+they say the visited sets coincide. The core condition says the visited
+sets coincide on $R$, which under (iii) is the same statement. So the two
+generate and keep the same set of labels; only the representation differs,
+from a vector of doubles to $\lceil |R| / 64 \rceil$ machine words. This is
+why the encoding is kept as the reference implementation in
+`test/python/tests_native_time_windows.py`.
+
+The correspondence, term by term:
+
+| | Visit indicator encoding | `require_all_visits=True` |
+|---|---|---|
+| Coverage is requested by | `min_res[counter] = n` on a counter resource | the `require_all_visits` / `required_nodes` arguments |
+| Dominance is restricted by | one indicator resource per required node, compared as part of the component-wise resource test | one bit set per label, compared once |
+| Visited set is represented as | $n$ `double` values, $0$ or $-1$ | $\lceil \|R\| / 64 \rceil$ machine words, one bit per required node |
+| Incomplete paths are rejected | at the final feasibility check, through `min_res` | when the extension into the sink is attempted |
+| Resource vector length | $n + 3$ | 2 |
+| Resource data per label | $8(n+3)$ bytes | 16 bytes, plus an inline 64-bit word for up to 64 required nodes (no allocation) |
+| Set membership test | floating-point comparison | exact bit operation |
+| Assembling it wrongly | silently returns a different answer | rejected in the constructor |
+
+Both express the same thing, so both should return the same answer. On the
+six-customer instance of Section 9.2 they do:
+
+```python
+"""The visit indicator encoding and require_all_visits, side by side, on the
+six-customer TSPTW instance of tsptw_cspy.py."""
+import networkx as nx
+import numpy as np
+from cspy import BiDirectional
+
+n = 6
+travel = ((0, 11, 8, 5, 8, 5, 7), (9, 0, 7, 12, 3, 11, 7), (8, 12, 0, 4, 8, 3, 11),
+          (3, 4, 10, 0, 8, 3, 8), (10, 3, 3, 6, 0, 8, 4), (5, 8, 5, 12, 4, 0, 10),
+          (8, 4, 7, 5, 12, 4, 0))
+tw_a = (0, 39, 2, 38, 32, 2, 42)
+tw_b = (200, 59, 18, 60, 57, 13, 60)
+service = (0, 6, 2, 4, 5, 3, 1)
+horizon = float(tw_b[0])
+time_windows = {i: (float(tw_a[i]), float(tw_b[i])) for i in range(1, n + 1)}
+service_times = {i: float(service[i]) for i in range(1, n + 1)}
+
+
+def build(n_res):
+    G = nx.DiGraph(n_res=n_res)
+
+    def rc(t):
+        return np.array([1.0, float(t)] + [0.0] * (n_res - 2))
+
+    for i in range(1, n + 1):
+        G.add_edge("Source", i, res_cost=rc(travel[0][i]), weight=float(travel[0][i]))
+        G.add_edge(i, "Sink", res_cost=rc(travel[i][0]), weight=float(travel[i][0]))
+        for j in range(1, n + 1):
+            if i != j:
+                G.add_edge(i, j, res_cost=rc(travel[i][j]), weight=float(travel[i][j]))
+    return G
+
+
+# (a) Visit indicator encoding: res[2..7] are the per-customer indicators
+#     (consumption -1, bounded to [-1, 0]), res[8] is the visit counter
+#     (consumption +1, min_res 6). Resource vector length n + 3 = 9.
+n_res = n + 3
+consumption = {1: service_times}
+for i in range(1, n + 1):
+    consumption[1 + i] = {i: -1.0}
+consumption[n + 2] = {i: 1.0 for i in range(1, n + 1)}
+indicator = BiDirectional(
+    build(n_res),
+    [float(n + 1), horizon] + [0.0] * n + [float(n)],
+    [0.0, 0.0] + [-1.0] * n + [float(n)],
+    direction="forward", elementary=True,
+    node_windows={1: time_windows}, node_consumption=consumption,
+    window_policy={1: "window_wait"},
+)
+indicator.run()
+
+# (b) require_all_visits: resource vector length 2.
+native = BiDirectional(
+    build(2), [float(n + 1), horizon], [0.0, 0.0],
+    direction="forward", elementary=True,
+    time_windows=time_windows, service_times=service_times,
+    require_all_visits=True,
+)
+native.run()
+
+for name, alg, count in (("indicator encoding", indicator, n_res),
+                         ("require_all_visits", native, 2)):
+    tour = " -> ".join(str(v) for v in alg.path)
+    print(f"{name} : {count} resources, cost {alg.total_cost}, tour {tour}")
+print("identical answer   :",
+      indicator.path == native.path
+      and indicator.total_cost == native.total_cost)
+```
+
+Output (actual output):
+
+```text
+indicator encoding : 9 resources, cost 33.0, tour Source -> 2 -> 5 -> 4 -> 1 -> 6 -> 3 -> Sink
+require_all_visits : 2 resources, cost 33.0, tour Source -> 2 -> 5 -> 4 -> 1 -> 6 -> 3 -> Sink
+identical answer   : True
+```
+
+**What the representation costs.** The search tree is the same size either
+way — the same labels are generated and the same labels are kept — so the
+difference is entirely the per-comparison and per-label cost of carrying the
+visited set as $n$ resources rather than as a bit set. Measured on randomly
+generated TSPTW instances (Apple M1, 8 GB), four instances per row, each
+figure the median over those instances of the best of three repetitions of
+"construct the `BiDirectional` object and call `run()`":
+
+| customers $n$ | resources, indicator encoding | resources, `require_all_visits` | indicator encoding | `require_all_visits` | ratio |
+|--:|--:|--:|--:|--:|--:|
+| 6 | 9 | 2 | 0.0011 s | 0.0007 s | 1.6x |
+| 8 | 11 | 2 | 0.0040 s | 0.0022 s | 1.8x |
+| 10 | 13 | 2 | 0.0222 s | 0.0084 s | 2.6x |
+| 12 | 15 | 2 | 0.289 s | 0.076 s | 3.8x |
+| 14 | 17 | 2 | 5.10 s | 0.93 s | 5.5x |
+
+The ratio grows with $n$ exactly as the model predicts: the indicator
+encoding pays $O(n)$ per dominance comparison while the bit set pays $O(1)$
+for any $n \le 64$, and the number of comparisons itself grows quickly. At
+$n = 6$ and $n = 8$ the totals are small enough that graph construction —
+also larger for the indicator encoding, whose `res_cost` arrays are
+$n+3$ wide — is a visible part of the measurement; from $n = 10$ on,
+`run()` dominates.
+
+Across all 20 instances the two encodings returned **the same cost**. They
+returned the same tour on 19 of them; on the remaining one ($n = 12$) they
+returned two different tours of equal cost 355.0. That is an alternative
+optimum, not a disagreement: neither encoding specifies how ties between
+equal-cost labels are broken.
+
+### 9.5 Restrictions and caveats
+
+1. **`direction='forward'` only.** `'both'` and `'backward'` are rejected
+   with an explanatory exception, from the Python layer and from the C++
+   engine. The backward search and the label joining step would each need
+   their own coverage argument (the bounds used in `joinLabels`, `getUB`
+   and `best_labels` may come from paths that do not cover $R$), and until
+   that is worked out the safe answer is to refuse. Since the default is
+   `direction='both'`, this exception is the first thing most callers see;
+   it names the fix.
+2. **`elementary=True` is required.** The soundness argument above uses it,
+   and without it the visited-set bit set would silently collapse repeated
+   visits.
+3. **The monotonicity assumption is inherited, not introduced.** A custom
+   `REF_callback` that is not monotone, or the `window_hard` policy (which
+   rejects early arrivals instead of waiting), breaks the assumption that
+   $r(L_1) \le r(L_2)$ propagates. That is a pre-existing property of the
+   engine's dominance rule; `require_all_visits` neither causes nor cures
+   it. A warning is logged when the two are combined.
+4. **`min_res[r] > 0` on a non-critical resource gives a wrong answer, not
+   a weaker bound.** The dominance rule assumes that the feasibility of a
+   non-critical resource is decided by its upper bound alone, so a strictly
+   positive lower bound on such a resource lets the search discard labels
+   that are on the way to a feasible path, and the run then reports the
+   degenerate `['Source']` for an instance that does have a solution. A
+   warning is logged. This is a property of the standard dominance rule and
+   applies without `require_all_visits` as well, but with
+   `require_all_visits` there is no longer any reason to set such a bound at
+   all: coverage is enforced directly and not through a counter resource.
+   A lower bound that really is part of the model belongs on the critical
+   resource (`critical_res`), where it is handled exactly.
+5. **A required node that is not in the graph is rejected, not searched
+   for.** Every entry of `required_nodes` is checked against `G` in the
+   constructor, and an entry that is not a node of `G` is reported through
+   the same collected-exception mechanism as the other argument errors
+   (`required_nodes entry 99 is not a node of G`). A node that disappears
+   between that check and the translation to internal identifiers — which
+   `preprocess=True` could in principle do — is caught separately and
+   raises a `KeyError` naming the node and pointing at `preprocess`.
+6. **Sink out-edges.** The terminal condition refuses every extension into
+   the sink from a label that does not yet cover $R$, so a path that passes
+   *through* the sink and continues would be cut. Under `elementary=True`
+   no `Source` -> `Sink` path can do that anyway.
+7. **Cost, and the practical size limit.** Making dominance stricter keeps
+   more labels; the label count is exponential in $|R|$ in the worst case.
+   This is the intrinsic difficulty of TSPTW and is the same for the visit
+   indicator encoding — what changes is the memory per label and the cost
+   of each comparison, not the size of the search tree. On a machine of the
+   class this fork is developed on (Apple M1, 8 GB), exact solves of
+   randomly generated instances run in well under a second up to roughly
+   twelve customers, take seconds to minutes around fourteen to sixteen,
+   and become impractical beyond about eighteen. Treat that as the exact
+   ceiling and use a heuristic or a decomposition above it.
+8. **A truncated search is reported exactly like an infeasible instance.**
+   When `time_limit` (or `threshold`) stops the search before any complete
+   `Source` -> `Sink` path has been accepted, the result is the degenerate
+   `['Source']` with `total_cost` unset — byte for byte what a genuinely
+   infeasible instance returns, with no flag separating the two. This is
+   pre-existing engine behaviour, but `require_all_visits` makes it much
+   easier to hit, because the first accepted path is far deeper in the
+   search than in a plain elementary shortest path problem. Either leave
+   `time_limit` unset, or record that the run was time limited and read a
+   degenerate result from it as "unknown" rather than as "infeasible".
+9. **C++ callers**: `BiDirectional::setRequiredNodes` must be called after
+   `addNodes`, takes user ids, rejects the source and the sink, and rejects
+   an empty required set. The bit index table is a hash map keyed by user
+   id, so its memory is proportional to the number of required nodes and
+   not to the largest user id; sparse user id spaces such as
+   `{0, 1, 10^9}` cost nothing extra. (The Python layer always passes a
+   contiguous `0..n-1` anyway.)
+10. **The C# bindings** (`src/cc/dotnet/bidirectional.i`) were not extended;
+    `setRequiredNodes` is exposed to Python only.
+
+Because the SWIG interface gained a method, an out-of-date wheel in the
+venv shows up as `AttributeError: setRequiredNodes`. Rebuild and reinstall
+as in Section 7.
+
 ---
 
 *Implementation verification*: every code example in this guide was actually
-executed with the Python at `/Users/azzqi/workspace/cspy/.venv`, and the
-output blocks are verbatim copies of real runs. The implementation itself
-passes roughly 2600 checks in total, including a bit-identical comparison
-against a Python director REF written independently from the PoC-validated
-formulas and exact brute-force cross-checking with `Fraction`. The permanent
-regression tests are in `test/python/tests_native_time_windows.py`
-(31 cases); for the primary source of the formulas and caveats, see
-`docs/ref.rst`.
+executed with the Python of the repository's `.venv`, and the output blocks
+are verbatim copies of real runs. The implementation itself passes roughly
+2600 checks in total, including a bit-identical comparison against a Python
+director REF written independently from the PoC-validated formulas and exact
+brute-force cross-checking with `Fraction`. The permanent regression tests
+are in `test/python/tests_native_time_windows.py` (65 cases, of which 33
+cover the mandatory visits of Section 9); for the primary source of the
+formulas and caveats, see `docs/ref.rst`.

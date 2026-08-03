@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from math import isfinite
 from time import time
 from typing import Union
@@ -356,6 +356,180 @@ def check_native_windows(
         )
     if errors:
         raise Exception("\n".join("{}".format(item) for item in errors))
+
+
+def check_required_visits(
+    G,
+    direction,
+    elementary,
+    require_all_visits,
+    required_nodes,
+    max_res=None,
+    min_res=None,
+    critical_res=None,
+    window_policy=None,
+):
+    """Validate the mandatory-visit arguments of :class:`cspy.BiDirectional`
+    (``require_all_visits`` / ``required_nodes``).
+
+    Parameters
+    ----------
+    G : object instance :class:`nx.Digraph()`
+
+    direction : string
+        preferred search direction. Only ``'forward'`` supports mandatory
+        visits.
+
+    elementary : bool
+        whether the problem is elementary. Mandatory visits require ``True``.
+
+    require_all_visits : bool
+        whether every accepted path must visit all of ``required_nodes``.
+
+    required_nodes : iterable of node labels or None
+        the nodes every accepted path must visit. ``None`` means every node
+        of ``G`` other than ``'Source'`` and ``'Sink'``.
+
+    Returns
+    -------
+    list of node labels or None
+        ``required_nodes`` materialised into a list, or ``None`` when it was
+        ``None`` (or when ``require_all_visits`` is False). The caller must
+        use the returned value and never the original argument: an iterable
+        that can only be traversed once (a generator, ``map``, ``filter``,
+        ``iter(...)``, a file or a ``csv.reader``) is consumed by this
+        validation, and reading it a second time would silently yield an
+        empty required set and hence disable the whole requirement.
+
+    :raises: Raises an exception listing all violations found.
+    """
+    errors = []
+    if not isinstance(require_all_visits, bool):
+        raise Exception(
+            "{}".format(
+                TypeError(
+                    "require_all_visits must be a bool, got {}".format(
+                        type(require_all_visits).__name__
+                    )
+                )
+            )
+        )
+    if not require_all_visits:
+        if required_nodes is not None:
+            raise Exception(
+                "{}".format(
+                    TypeError("required_nodes requires require_all_visits=True")
+                )
+            )
+        return None
+
+    if not (isinstance(elementary, bool) and elementary):
+        errors.append(
+            TypeError(
+                "require_all_visits=True requires elementary=True: the"
+                " dominance argument relies on elementary paths"
+            )
+        )
+    if direction != "forward":
+        errors.append(
+            TypeError(
+                "require_all_visits=True requires direction='forward' (got"
+                " '{}'). The backward search and the label joining step cannot"
+                " yet certify that all required nodes are visited; pass"
+                " direction='forward'.".format(direction)
+            )
+        )
+    # `names` is the single materialisation of `required_nodes`; it is what
+    # the caller must use from here on (see the Returns section).
+    names = None
+    if required_nodes is not None:
+        if isinstance(required_nodes, (str, bytes)):
+            errors.append(
+                TypeError(
+                    "required_nodes must be an iterable of node labels, not a"
+                    " string"
+                )
+            )
+        elif not isinstance(required_nodes, Iterable):
+            errors.append(
+                TypeError(
+                    "required_nodes must be an iterable of node labels, got"
+                    " {}".format(type(required_nodes).__name__)
+                )
+            )
+        else:
+            names = list(required_nodes)
+            if not names:
+                errors.append(
+                    TypeError(
+                        "required_nodes is empty: with require_all_visits=True"
+                        " an empty required set would make the requirement"
+                        " vacuous and give a plain elementary shortest path"
+                        " answer. Pass require_all_visits=False instead, or"
+                        " required_nodes=None for every node other than"
+                        " 'Source' and 'Sink'. Note that an iterable which can"
+                        " only be traversed once (a generator, map, filter,"
+                        " iter(...)) also lands here when it has already been"
+                        " consumed."
+                    )
+                )
+            for name in names:
+                if name in ("Source", "Sink"):
+                    errors.append(
+                        TypeError(
+                            "required_nodes must not contain 'Source' or"
+                            " 'Sink' (they are on every path by construction)"
+                        )
+                    )
+                elif name not in G.nodes:
+                    errors.append(
+                        TypeError(
+                            "required_nodes entry {} is not a node of"
+                            " G".format(name)
+                        )
+                    )
+    else:
+        if not (set(G.nodes) - {"Source", "Sink"}):
+            errors.append(
+                TypeError(
+                    "require_all_visits=True but the graph has no node other"
+                    " than 'Source' and 'Sink', so the requirement would be"
+                    " vacuous. Pass require_all_visits=False instead."
+                )
+            )
+
+    # --- interactions that weaken the dominance assumptions (warnings only) ---
+    hard_res = [
+        r for r, p in (window_policy or {}).items() if p == "window_hard"
+    ]
+    if hard_res:
+        LOG.warning(
+            "require_all_visits with window_policy 'window_hard' (resources"
+            " %s): early arrivals are rejected instead of postponed, so the"
+            " resource extension function is not monotone and dominance on"
+            " those resources is not sound (a pre-existing property,"
+            " independent of require_all_visits).",
+            hard_res,
+        )
+    if min_res is not None:
+        c_res = critical_res if isinstance(critical_res, int) else 0
+        for r, value in enumerate(min_res):
+            if r != c_res and value > 0:
+                LOG.warning(
+                    "min_res[%s] > 0 on a non-critical resource: the dominance"
+                    " rule assumes that feasibility of non-critical resources"
+                    " is decided by upper bounds only, so a lower bound on"
+                    " such a resource can discard feasible paths and report"
+                    " 'no solution' for an instance that has one. This is a"
+                    " property of the standard dominance rule, not of"
+                    " require_all_visits, but require_all_visits makes it"
+                    " easier to hit. Model the lower bound on the critical"
+                    " resource (critical_res) instead.",
+                    r,
+                )
+    if errors:
+        raise Exception("\n".join("{}".format(item) for item in errors))
+    return names
 
 
 def _check_window_dict(G, what, windows, max_res, r, errors):

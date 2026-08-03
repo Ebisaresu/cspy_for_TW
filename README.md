@@ -30,7 +30,8 @@ A collection of algorithms for the (resource) Constrained Shortest Path (CSP) pr
 > **This is a fork.** [`Ebisaresu/cspy_for_TW`](https://github.com/Ebisaresu/cspy_for_TW)
 > is a fork of [`torressa/cspy`](https://github.com/torressa/cspy) (MIT) which adds
 > native C++ support for time windows, and more generally for per-node resource
-> windows, to the bidirectional labeling algorithm. See
+> windows, to the bidirectional labeling algorithm, plus an option to require
+> that every node of a given set is visited. See
 > [Time windows (this fork)](#time-windows-this-fork).
 >
 > These additions are **not on PyPI**: `pip install cspy` installs the upstream
@@ -223,11 +224,17 @@ three propagation policies:
 Time windows are then the special case of `window_wait` on the time resource with
 `lb = a_v`, `ub = b_v` and `c_r(v) = s_v` (service time), giving the usual
 `T_j = max(a_j, T_i + s_i + t_ij)` rejected when `T_j > b_j`. Only the resource
-extension hooks (`REF_fwd`, `REF_bwd`, `REF_join`) are implemented: there are no
-changes to the dominance rules or to the halfway-point logic, and
-`direction="both"` is supported. The existing `REF_callback` mechanism and the
-rest of the API are unchanged. The one other C++ change is a pair of defensive
-null guards in `joinLabels()`
+extension hooks (`REF_fwd`, `REF_bwd`, `REF_join`) are implemented: for the
+window resources there are no changes to the dominance rules or to the
+halfway-point logic, and `direction="both"` is supported. The existing
+`REF_callback` mechanism and the rest of the API are unchanged.
+
+The [mandatory visits](#mandatory-visits) option is the one feature that does
+change the labeling core, because the rule it has to change *is* the dominance
+rule. Every added code path is guarded by the option, which is off by default;
+with it off the engine was checked to produce byte-identical output to the
+unmodified build over 3222 solver runs. The other C++ change is a pair of
+defensive null guards in `joinLabels()`
 ([`src/cc/bidirectional.cc`](src/cc/bidirectional.cc)), which fix an upstream
 segfault reachable with `direction="both"` and a binding `min_res` on a
 non-critical resource, independently of time windows.
@@ -308,6 +315,28 @@ arguments `node_windows={r: {node: (lb, ub)}}`, `node_consumption={r: {node: c_v
 and `window_policy={r: "additive"|"window_wait"|"window_hard"}` (plus
 `window_eps`), which apply windows, node consumptions and policies to any
 resource, including `additive` with `c_r(v) = -1` to express visit flags.
+
+### Mandatory visits
+
+`require_all_visits=True` restricts the search to `Source -> Sink` paths that
+visit every node of `required_nodes` (default: every node other than `"Source"`
+and `"Sink"`; a proper subset is also accepted), so that adding it to the time
+windows above solves the Traveling Salesman Problem with Time Windows (TSPTW)
+with a resource vector of length two — an edge counter and time — instead of one
+visit indicator resource per customer. The standard dominance rule is unsound
+once coverage is required — a cheaper label whose visited set is a proper subset
+could prune the only label still able to cover the rest — so the option also
+restricts dominance to labels that visit exactly the same required nodes, which
+is why it needs `elementary=True` and `direction="forward"` and rejects anything
+else with an explanatory error. Two things to keep in mind: an exact TSPTW solve
+is exponential in the number of customers (on an Apple M1 with 8 GB, well under
+a second up to about twelve customers, seconds to minutes at fourteen to
+sixteen, impractical beyond about eighteen), and a run cut short by `time_limit`
+reports the same degenerate `["Source"]` as a genuinely infeasible instance, so
+it must be read as "unknown" rather than "infeasible". Worked examples, the
+soundness argument, the comparison against the visit indicator encoding and the
+remaining caveats are in
+[`NATIVE_TW_GUIDE.md`](tsptw_example/NATIVE_TW_GUIDE.md) Section 9.
 
 ### Performance
 

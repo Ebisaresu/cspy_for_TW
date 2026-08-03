@@ -1,7 +1,9 @@
 #ifndef SRC_CC_PARAMS_H__
 #define SRC_CC_PARAMS_H__
 
-#include <cmath> // nan
+#include <cmath>         // nan
+#include <cstdint>       // uint64_t
+#include <unordered_map> // unordered_map
 #include <vector>
 
 #include "ref_callback.h"
@@ -50,6 +52,28 @@ class Params {
   /// Callback to custom REF
   bidirectional::REFCallback* ref_callback = nullptr;
 
+  /* Required (mandatory) visits.
+   *
+   * When `require_all_visits` is true, the search only accepts Source-Sink
+   * paths that visit every node of the required set, and the dominance rule
+   * is restricted so that a label may only dominate another label visiting
+   * exactly the same required nodes. All of the members below are unused
+   * (and the feature is a no-op) while `require_all_visits` is false.
+   */
+
+  /// Whether the search must only accept Source-Sink paths that visit every
+  /// node in the required set. Default false (feature disabled).
+  bool require_all_visits = false;
+  /// Number of 64-bit words used by the required-visit bit set.
+  int required_words = 0;
+  /// Bit index of each required vertex in the required-visit bit set, keyed
+  /// by user id. Vertices that are not required are absent from the map, so
+  /// the memory used is proportional to the number of required vertices and
+  /// not to the largest user id. Empty when disabled.
+  std::unordered_map<int, int> required_bit_by_user_id;
+  /// Bit set with every required node set (the coverage target).
+  std::vector<std::uint64_t> required_mask_full;
+
   /* Constructors */
 
   Params(){};
@@ -85,6 +109,25 @@ class Params {
   }
   /// Set callback for custom resource extensions
   void setREFCallback(bidirectional::REFCallback* cb) { ref_callback = cb; };
+  /**
+   * Enable the required-visit mode.
+   *
+   * @param[in] bit_index_by_user_id, map from the user id of each required
+   * vertex to its bit index in the required-visit bit set.
+   * @param[in] n_required, int with the number of required vertices (bits).
+   *
+   * Called by BiDirectional::setRequiredNodes, which validates the ids.
+   */
+  void setRequiredVisits(
+      const std::unordered_map<int, int>& bit_index_by_user_id,
+      const int&                          n_required) {
+    require_all_visits      = true;
+    required_bit_by_user_id = bit_index_by_user_id;
+    required_words          = (n_required + 63) / 64;
+    required_mask_full.assign(required_words, 0ULL);
+    for (int b = 0; b < n_required; ++b)
+      required_mask_full[b >> 6] |= (1ULL << (b & 63));
+  }
 };
 
 } // namespace bidirectional

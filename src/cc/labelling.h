@@ -1,7 +1,9 @@
 #ifndef SRC_CC_LABELLING_H__
 #define SRC_CC_LABELLING_H__
 
-#include <cmath> // nan
+#include <algorithm> // copy
+#include <cmath>     // nan
+#include <cstdint>   // uint64_t
 #include <set>
 #include <vector>
 
@@ -13,6 +15,112 @@
 #include "spdlog/spdlog.h" // after config.h as
 
 namespace labelling {
+
+/**
+ * Immutable bit set over the required nodes visited by a label, used only
+ * when `Params::require_all_visits` is true.
+ *
+ * Every label carries one of these, including the labels of the users that
+ * never enable the mandatory-visit mode, so the representation is kept as
+ * small and as allocation free as possible:
+ *   - at most 64 required nodes (one word), which covers every instance that
+ *     an exact labelling algorithm can solve in practice, the word is stored
+ *     inline and no heap allocation takes place;
+ *   - beyond 64 required nodes a heap array is used;
+ *   - when the mandatory-visit mode is disabled the bit set holds zero words
+ *     and no heap allocation takes place either.
+ * The word count is stored in the object so that copying and comparison are
+ * self contained (labels are stored and compared by value).
+ */
+class RequiredVisitMask {
+ public:
+  RequiredVisitMask() = default;
+  ~RequiredVisitMask() { deallocate(); }
+  RequiredVisitMask(const RequiredVisitMask& other) { copyFrom(other); }
+  RequiredVisitMask(RequiredVisitMask&& other) noexcept { stealFrom(other); }
+  RequiredVisitMask& operator=(const RequiredVisitMask& other) {
+    if (this != &other) {
+      deallocate();
+      copyFrom(other);
+    }
+    return *this;
+  }
+  RequiredVisitMask& operator=(RequiredVisitMask&& other) noexcept {
+    if (this != &other) {
+      deallocate();
+      stealFrom(other);
+    }
+    return *this;
+  }
+
+  /// Number of 64-bit words held.
+  int size() const { return num_words_; }
+  /// Read access to the words. Only the first `size()` entries are valid.
+  const std::uint64_t* words() const {
+    return num_words_ > 1 ? storage_.heap : &storage_.inlined;
+  }
+  /// Discard the contents and hold `n_words` zeroed words.
+  void reset(const int& n_words) {
+    deallocate();
+    num_words_ = n_words;
+    if (n_words > 1)
+      storage_.heap = new std::uint64_t[n_words]();
+  }
+  /// Set bit `b`. The caller guarantees `b < 64 * size()`.
+  void setBit(const int& b) {
+    if (num_words_ > 1)
+      storage_.heap[b >> 6] |= (1ULL << (b & 63));
+    else
+      storage_.inlined |= (1ULL << (b & 63));
+  }
+  bool operator==(const RequiredVisitMask& other) const {
+    if (num_words_ != other.num_words_)
+      return false;
+    if (num_words_ <= 1) // also covers the empty (disabled) case
+      return storage_.inlined == other.storage_.inlined;
+    for (int i = 0; i < num_words_; ++i)
+      if (storage_.heap[i] != other.storage_.heap[i])
+        return false;
+    return true;
+  }
+  bool operator!=(const RequiredVisitMask& other) const {
+    return !(*this == other);
+  }
+
+ private:
+  union Storage {
+    std::uint64_t  inlined;
+    std::uint64_t* heap;
+  };
+
+  void deallocate() {
+    if (num_words_ > 1)
+      delete[] storage_.heap;
+    num_words_       = 0;
+    storage_.inlined = 0ULL;
+  }
+  void copyFrom(const RequiredVisitMask& other) {
+    num_words_ = other.num_words_;
+    if (num_words_ > 1) {
+      storage_.heap = new std::uint64_t[num_words_];
+      std::copy(
+          other.storage_.heap,
+          other.storage_.heap + num_words_,
+          storage_.heap);
+    } else {
+      storage_.inlined = other.storage_.inlined;
+    }
+  }
+  void stealFrom(RequiredVisitMask& other) {
+    num_words_             = other.num_words_;
+    storage_               = other.storage_;
+    other.num_words_       = 0;
+    other.storage_.inlined = 0ULL;
+  }
+
+  int     num_words_ = 0;
+  Storage storage_   = {0ULL};
+};
 
 /**
  * Single node label. With resource, cost and other attributes.
@@ -28,8 +136,18 @@ class Label {
   std::vector<double>   resource_consumption = {};
   std::vector<int>      partial_path         = {};
   /// Set of unreachable nodes. This is only used in the elementary case.
-  std::set<int>          unreachable_nodes = {};
-  bidirectional::Params* params_ptr        = nullptr;
+  std::set<int> unreachable_nodes = {};
+  /**
+   * Bit set over the required nodes visited by `partial_path`.
+   * Bit `params_ptr->required_bit_by_user_id[u]` is set when user id `u`
+   * appears in `partial_path`. This is only used when
+   * `params_ptr->require_all_visits` is true; otherwise it holds zero words
+   * (no allocation) and the label behaves exactly as before.
+   * Unlike `unreachable_nodes`, this member is never modified after
+   * construction, so it always represents the visited set of the label.
+   */
+  RequiredVisitMask      required_visited_mask = {};
+  bidirectional::Params* params_ptr            = nullptr;
   // Phi value for joining algorithm from Righini and Salani (2006)
   double phi = std::nan("nan");
 
@@ -53,6 +171,22 @@ class Label {
       const std::vector<int>&      partial_path_in,
       bidirectional::Params*       params,
       const double&                phi_in);
+
+  /**
+   * @overload for the extension of `parent` along a single edge.
+   *
+   * `partial_path_in` must be the partial path of `parent` followed by
+   * `vertex_in`, so the required-visit bit set is the one of `parent` with at
+   * most one extra bit. Inheriting it avoids re-scanning the whole partial
+   * path on every extension.
+   */
+  Label(
+      const double&                weight_in,
+      const bidirectional::Vertex& vertex_in,
+      const std::vector<double>&   resource_consumption_in,
+      const std::vector<int>&      partial_path_in,
+      bidirectional::Params*       params,
+      const Label&                 parent);
 
   /// default destructor
   ~Label(){};
@@ -174,6 +308,30 @@ class Label {
    */
   bool checkSameFeasibleExtension(const Label& other) const;
 
+  /**
+   * Check whether every required node has already been visited by the
+   * partial path of this label.
+   * Only meaningful when `params_ptr->require_all_visits` is true.
+   *
+   * Precondition: `params_ptr != nullptr`, i.e. the label was built with one
+   * of the constructors that take the parameters and not with the dummy
+   * constructor. This matches `checkFeasibility` and `checkPathExtension`.
+   *
+   * @return true if the visited set covers the whole required set
+   */
+  bool checkAllRequiredVisited() const;
+
+  /**
+   * Check whether both labels visit exactly the same required nodes.
+   * Only meaningful when `params_ptr->require_all_visits` is true.
+   *
+   * Precondition: `params_ptr != nullptr` (see `checkAllRequiredVisited`).
+   *
+   * @param[in] other, Label with other label to compare
+   * @return true if the two required-visit bit sets are equal
+   */
+  bool checkSameRequiredVisits(const Label& other) const;
+
   /// set phi attribute for merged labels from Righini and Salani (2006)
   void setPhi(const double& phi_in) { phi = phi_in; }
 
@@ -191,6 +349,14 @@ class Label {
   friend bool          operator!=(const Label& label1, const Label& label2) {
              return !(label1 == label2);
   }
+
+ private:
+  /**
+   * Set the bit of user id `user_id` in `required_visited_mask` when that
+   * vertex belongs to the required set. No-op otherwise.
+   * Only called when `params_ptr->require_all_visits` is true.
+   */
+  void setRequiredVisitBit(const int& user_id);
 };
 
 /**

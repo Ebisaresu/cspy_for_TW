@@ -129,6 +129,20 @@ class BiDirectional {
   void setREFCallback(bidirectional::REFCallback* cb) {
     params_ptr_->setREFCallback(cb);
   }
+  /**
+   * Restrict the search to Source-Sink paths that visit every node in
+   * `required_user_ids` (the mandatory-visit mode, e.g. for the Traveling
+   * Salesman Problem with Time Windows).
+   *
+   * Must be called after `addNodes`. Requires `elementary = true` and
+   * `direction = forward`; both are checked in `run`.
+   *
+   * @param[in] required_user_ids, vector of int with the user ids of the
+   * vertices that every accepted path must visit. Duplicates are ignored.
+   * Must not be empty: an empty required set would silently make the whole
+   * mandatory-visit mode vacuous, so it is rejected.
+   */
+  void setRequiredNodes(const std::vector<int>& required_user_ids);
   /// set random using a given seed
   // void setSeed(const int& seed) { std::srand(seed); }
 

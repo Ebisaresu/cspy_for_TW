@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [unreleased]
 
+### Added
+
+ - `BiDirectional(..., require_all_visits=True, required_nodes=...)`: restrict
+   the search to `Source`-`Sink` paths visiting every node of a given set, so
+   that the Traveling Salesman Problem with Time Windows (TSPTW) can be solved
+   without encoding one visit indicator resource per customer. Requires
+   `elementary=True` and `direction='forward'`; both are rejected with an
+   explanatory error otherwise. New C++ entry point
+   `BiDirectional::setRequiredNodes` (exposed to Python through SWIG).
+ - Dominance is restricted, under that option only, to labels visiting exactly
+   the same required nodes, and forward extensions into the sink are refused
+   until every required node has been visited. The standard rule is unsound
+   here: a cheaper label with a proper subset visited set can dominate and
+   prune the only label that could still cover the rest.
+ - `cspy.checking.check_required_visits` validating the new arguments. It
+   materialises `required_nodes` once and returns the resulting list, which is
+   what `BiDirectional` then uses, so that an iterable which can only be
+   traversed once (a generator, `map`, `filter`, `iter(...)`) is handled
+   correctly instead of silently yielding an empty required set and disabling
+   the whole requirement.
+ - An empty required set is rejected, in the Python layer and in
+   `BiDirectional::setRequiredNodes`, instead of silently reducing the problem
+   to a plain elementary shortest path problem.
+
+Both new code paths are guarded by the option and are inactive by default; the
+default behaviour was verified to be byte-identical to the previous build over
+3222 solver runs.
+
+### Fixed
+
+ - `BiDirectional` now keeps a reference to a user supplied `REF_callback`.
+   The C++ side stores only a raw pointer, so passing a temporary
+   (`BiDirectional(..., REF_callback=MyCallback())`) used to let the object be
+   collected and crash the interpreter with a segmentation fault during
+   `run()`. Pre-existing behaviour, unrelated to the mandatory-visit option.
+
 ## [v1.0.3]
 
 ### Fixed

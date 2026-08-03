@@ -1,7 +1,11 @@
 #include "src/cc/bidirectional.h"
 
-#include <algorithm> // sort, all_of, find
-#include <limits>    // numeric_limits
+#include <algorithm>     // sort, all_of, find, min, max
+#include <limits>        // numeric_limits
+#include <stdexcept>     // invalid_argument, runtime_error
+#include <string>        // to_string
+#include <unordered_map> // unordered_map
+#include <unordered_set> // unordered_set
 
 #include "src/cc/preprocessing.h" // lowerBoundWeight, getCriticalRes
 
@@ -68,7 +72,72 @@ void BiDirectional::checkCriticalRes() const {
         min_r);
 }
 
+void BiDirectional::setRequiredNodes(
+    const std::vector<int>& required_user_ids) {
+  // `vertices` is pre-sized by the DiGraph constructor, so its size says
+  // nothing about whether the nodes have been added; the LEMON graph node
+  // count does.
+  if (graph_ptr_->vertices.empty() ||
+      graph_ptr_->lemon_graph_ptr->nodeNum() == 0) {
+    throw std::invalid_argument(
+        "[BiDirectional] setRequiredNodes must be called after addNodes");
+  }
+  // Only the first `n_added` entries of `vertices` have been filled in by
+  // addNodes; the remaining ones are still value-initialised.
+  const int n_added = std::min(
+      static_cast<int>(graph_ptr_->vertices.size()),
+      graph_ptr_->lemon_graph_ptr->nodeNum());
+  if (required_user_ids.empty()) {
+    throw std::invalid_argument(
+        "[BiDirectional] setRequiredNodes was given an empty set of required"
+        " nodes; the requirement would be vacuous. Do not call it at all to"
+        " keep the mandatory-visit mode disabled");
+  }
+  // Both containers below are sized by the number of vertices / required
+  // nodes and not by the largest user id, so that sparse user ids (for
+  // instance {0, 1, 100000000}) cost no extra memory.
+  std::unordered_set<int> vertex_ids;
+  vertex_ids.reserve(n_added);
+  for (int i = 0; i < n_added; ++i) {
+    if (graph_ptr_->vertices[i].user_id < 0) {
+      throw std::invalid_argument(
+          "[BiDirectional] setRequiredNodes requires non-negative user ids");
+    }
+    vertex_ids.insert(graph_ptr_->vertices[i].user_id);
+  }
+
+  std::unordered_map<int, int> bit_index;
+  bit_index.reserve(required_user_ids.size());
+  int bit = 0;
+  for (const int& id : required_user_ids) {
+    if (vertex_ids.count(id) == 0) {
+      throw std::invalid_argument(
+          "[BiDirectional] required node " + std::to_string(id) +
+          " is not a vertex of the graph");
+    }
+    if (id == graph_ptr_->source.user_id || id == graph_ptr_->sink.user_id) {
+      throw std::invalid_argument(
+          "[BiDirectional] the source and the sink cannot be required nodes");
+    }
+    if (bit_index.count(id) > 0)
+      continue; // duplicates ignored
+    bit_index[id] = bit++;
+  }
+  params_ptr_->setRequiredVisits(bit_index, bit);
+}
+
 void BiDirectional::run() {
+  if (params_ptr_->require_all_visits) {
+    if (params_ptr_->direction != FWD) {
+      throw std::invalid_argument(
+          "[BiDirectional] required nodes are only supported with direction ="
+          " forward");
+    }
+    if (!params_ptr_->elementary) {
+      throw std::invalid_argument(
+          "[BiDirectional] required nodes require elementary = true");
+    }
+  }
   start_time_ = std::chrono::system_clock::now();
   init();
 
@@ -432,6 +501,13 @@ void BiDirectional::extendSingleLabel(
     labelling::Label* label,
     const Directions& direction,
     const AdjVertex&  adj_vertex) {
+  // Mandatory visits: never reach the sink before every required node has
+  // been visited. Guarded, hence a no-op by default.
+  if (params_ptr_->require_all_visits && direction == FWD &&
+      adj_vertex.vertex.user_id == graph_ptr_->sink.user_id &&
+      !label->checkAllRequiredVisited()) {
+    return;
+  }
   if ( // Always extend when non-elementary
       !params_ptr_->elementary ||
       // When elementary, check if vertex already seen / unreachable and if the
@@ -621,6 +697,17 @@ void BiDirectional::postProcessing() {
           std::make_shared<labelling::Label>(labelling::processBwdLabel(
               *bwd_search_ptr_->intermediate_label, max_res, min_res, true));
     }
+  }
+  // Mandatory visits: safety net turning a silently wrong answer into a
+  // loud failure. Guarded, hence a no-op by default.
+  if (params_ptr_->require_all_visits && best_label_ &&
+      best_label_->vertex.lemon_id != -1 &&
+      best_label_->checkStPath(
+          graph_ptr_->source.user_id, graph_ptr_->sink.user_id) &&
+      !best_label_->checkAllRequiredVisited()) {
+    throw std::runtime_error(
+        "[BiDirectional] internal error: the returned path does not visit all"
+        " required nodes");
   }
   // 80 stars at the end
   spdlog::default_logger()->set_pattern("%v");

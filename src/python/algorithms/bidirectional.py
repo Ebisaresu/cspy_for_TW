@@ -1,15 +1,16 @@
 # Wrapper for BiDirectionalCpp
-from typing import Dict, Hashable, List, Optional, Tuple, Union
+from typing import Dict, Hashable, Iterable, List, Optional, Tuple, Union
 
 from networkx import DiGraph, convert_node_labels_to_integers, get_node_attributes
 from cspy.preprocessing import preprocess_graph
-from cspy.checking import check, check_native_windows
+from cspy.checking import check, check_native_windows, check_required_visits
 
 # Import from the SWIG output file
 from .pyBiDirectionalCpp import (
     BiDirectionalCpp,
     REFCallback,
     DoubleVector,
+    IntVector,
     NodeWindowREF,
     POLICY_ADDITIVE,
     POLICY_WINDOW_WAIT,
@@ -153,6 +154,42 @@ class BiDirectional:
     window_eps : float, optional
         tolerance used in native window comparisons. Default : 1e-9
 
+    require_all_visits : bool, optional
+        When True, only ``Source`` -> ``Sink`` paths that visit every node of
+        ``required_nodes`` are accepted, and the dominance rule is restricted
+        so that a label may only dominate another label visiting exactly the
+        same required nodes. This makes it possible to solve the Traveling
+        Salesman Problem with Time Windows (TSPTW) directly, without encoding
+        one visit indicator resource per customer.
+        Requires ``elementary=True`` and ``direction='forward'``.
+        The restriction of the dominance rule is what makes the search sound
+        here: the standard rule lets a label whose visited set is a proper
+        subset dominate a label with a superset visited set, which prunes
+        away the only labels that can still cover every required node.
+        Note the assumptions inherited from the standard dominance rule are
+        unchanged: resource extension functions must be monotone (a custom
+        ``REF_callback`` that is not monotone, or the ``'window_hard'``
+        policy, can still prune optimal labels), and feasibility of
+        non-critical resources is assumed to be decided by upper bounds only.
+        A strictly positive lower bound on a non-critical resource
+        (``min_res[r] > 0`` for ``r != critical_res``) breaks that assumption
+        and can make the search report "no solution" for an instance that has
+        one -- a wrong answer, not merely a weaker bound. Model such a lower
+        bound on the critical resource instead. A warning is logged.
+        Default: False
+
+    required_nodes : iterable of node labels, optional
+        The nodes that every accepted path must visit, given with the
+        original node labels of ``G``. Defaults to every node of ``G`` other
+        than ``'Source'`` and ``'Sink'``. Only usable together with
+        ``require_all_visits=True``. Duplicates are ignored and the order is
+        irrelevant. An iterable that can only be traversed once (a generator,
+        ``map``, ``filter``, ``iter(...)``) is accepted: it is materialised
+        once during validation. An empty required set is rejected, because it
+        would silently reduce the problem to a plain elementary shortest path
+        problem.
+        Default : None
+
     Notes
     -----
     When no resource-feasible ``Source -> Sink`` path exists, the reported
@@ -167,6 +204,15 @@ class BiDirectional:
 
         infeasible = (alg.path is None or len(alg.path) <= 1
                       or alg.path[0] != "Source" or alg.path[-1] != "Sink")
+
+    A search stopped early by ``time_limit`` (or by ``threshold``) before any
+    complete ``Source -> Sink`` path was accepted reports exactly the same
+    degenerate result as a genuinely infeasible instance; nothing
+    distinguishes the two. This matters in particular with
+    ``require_all_visits=True``, where the first accepted path is much harder
+    to reach than in the plain elementary shortest path problem. Either leave
+    ``time_limit`` unset, or treat a degenerate result from a time limited run
+    as "unknown" rather than as "infeasible".
 
     .. _REFs : https://cspy.readthedocs.io/en/latest/ref.html
     .. _Tilk 2017: https://www.sciencedirect.com/science/article/pii/S0377221717302035
@@ -199,6 +245,9 @@ class BiDirectional:
         node_consumption: Optional[Dict[int, Dict[Hashable, float]]] = None,
         window_policy: Optional[Dict[int, str]] = None,
         window_eps: float = 1e-9,
+        # --- mandatory visits ---
+        require_all_visits: bool = False,
+        required_nodes: Optional[Iterable[Hashable]] = None,
     ):
         # Check inputs
         check(G, max_res, min_res, direction, REF_callback, __name__)
@@ -219,6 +268,32 @@ class BiDirectional:
             node_consumption,
             window_policy,
         )
+        # The validation materialises `required_nodes` into a list and returns
+        # it. Rebinding the name here is what guarantees that the argument is
+        # traversed exactly once: an iterable that can only be traversed once
+        # (a generator, ``map``, ``filter``, ``iter(...)``) would otherwise be
+        # empty on the second traversal, which would silently disable the
+        # whole requirement.
+        required_nodes = check_required_visits(
+            G,
+            direction,
+            elementary,
+            require_all_visits,
+            required_nodes,
+            max_res,
+            min_res,
+            critical_res,
+            window_policy,
+        )
+        # Node labels every accepted path must visit (None = feature off).
+        # The validation guarantees that this set is never empty.
+        self._required_nodes = None
+        if require_all_visits:
+            self._required_nodes = (
+                set(required_nodes)
+                if required_nodes is not None
+                else set(G.nodes) - {"Source", "Sink"}
+            )
         # Normalised native window specs: {r: (policy, windows, consumption)}
         window_specs = self._normalize_window_specs(
             time_windows,
@@ -253,6 +328,8 @@ class BiDirectional:
             min_res_vector,
         )
         self._load_graph()
+        if self._required_nodes is not None:
+            self.bidirectional_cpp.setRequiredNodes(self._required_node_ids())
         # pass solving attributes
         if direction != "both":
             self.bidirectional_cpp.setDirection(direction)
@@ -270,6 +347,12 @@ class BiDirectional:
             self.bidirectional_cpp.setFindCriticalRes(True)
         if isinstance(critical_res, int) and critical_res != 0:
             self.bidirectional_cpp.setCriticalRes(critical_res)
+        # The C++ side only holds a raw pointer to the custom resource
+        # extension function, so keep a reference here as well: a caller
+        # writing BiDirectional(..., REF_callback=MyCallback()) would
+        # otherwise let the temporary be collected and the labelling loop
+        # would dereference freed memory (a segmentation fault).
+        self._ref_callback = REF_callback
         if REF_callback is not None:
             # Add a Python callback (caller owns the callback, so we
             # disown it first by calling __disown__).
@@ -360,6 +443,23 @@ class BiDirectional:
             self.bidirectional_cpp.addEdge(
                 edge[0], edge[1], edge[2]["weight"], res_cost
             )
+
+    def _required_node_ids(self):
+        """Map the required node labels to the internal integer ids used by
+        the C++ engine (the same mapping as :meth:`_build_native_windows`)."""
+        rev = {v: k for k, v in self._original_node_labels.items()}
+        ids = IntVector()
+        # Sorting only makes the bit order (and hence any debug output)
+        # reproducible; it does not affect the result.
+        for name in sorted(self._required_nodes, key=repr):
+            try:
+                ids.append(rev[name])
+            except KeyError:
+                raise KeyError(
+                    "Required node {} not found in the graph (was it pruned by"
+                    " preprocess=True, or misspelled?)".format(name)
+                )
+        return ids
 
     @staticmethod
     def _normalize_window_specs(
