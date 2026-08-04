@@ -182,10 +182,10 @@ bool Label::checkFeasibility(
   return true;
 }
 
-bool Label::checkThreshold(const double& threshold) const {
-  if (weight <= threshold)
-    return true;
-  return false;
+bool Label::checkThreshold(const double& threshold, const bool& strict) const {
+  if (strict)
+    return (weight < threshold);
+  return (weight <= threshold);
 }
 
 bool Label::checkStPath(const int& source_id, const int& sink_id) const {

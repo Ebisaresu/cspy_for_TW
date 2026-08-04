@@ -265,8 +265,17 @@ class Label {
       const std::vector<double>& min_res,
       const bool&                soft = false) const;
 
-  /// Check if weight is under the input threshold.
-  bool checkThreshold(const double& threshold) const;
+  /**
+   * Check if weight meets the input threshold.
+   *
+   * @param[in] threshold, double with the acceptance threshold.
+   * @param[in] strict, bool. When false (default) the label meets the
+   * threshold when `weight <= threshold`; when true only when
+   * `weight < threshold` (strictly better than the threshold, e.g. a known
+   * incumbent value).
+   */
+  bool checkThreshold(const double& threshold, const bool& strict = false)
+      const;
 
   /**
    * Check whether the current partial path is Source - Sink

@@ -3,7 +3,12 @@ from typing import Dict, Hashable, Iterable, List, Optional, Tuple, Union
 
 from networkx import DiGraph, convert_node_labels_to_integers, get_node_attributes
 from cspy.preprocessing import preprocess_graph
-from cspy.checking import check, check_native_windows, check_required_visits
+from cspy.checking import (
+    check,
+    check_native_windows,
+    check_required_visits,
+    check_threshold_strict,
+)
 
 # Import from the SWIG output file
 from .pyBiDirectionalCpp import (
@@ -66,9 +71,20 @@ class BiDirectional:
 
     threshold : float, optional
         specify a threshold for a an acceptable resource feasible path with
-        total cost <= threshold.
+        total cost <= threshold (or total cost < threshold when
+        ``threshold_strict=True``).
         Note this typically causes the search to terminate early.
         Default: None
+
+    threshold_strict : bool, optional
+        when True, the threshold comparison is strict: the search stops on a
+        path with total cost < threshold instead of <= threshold. Use this to
+        pass the value of a known incumbent solution as ``threshold``, so
+        that the search stops only when a strictly better solution is found
+        and otherwise runs to completion (proving that no better solution
+        exists, under the usual dominance soundness assumptions).
+        Requires ``threshold`` to be set to a number (not None, not NaN).
+        Default: False
 
     elementary : bool, optional
         whether the problem is elementary. i.e. no cycles are allowed in the
@@ -192,6 +208,24 @@ class BiDirectional:
 
     Notes
     -----
+    After :meth:`run`, :attr:`termination_reason` reports why the search
+    stopped (``'completed'``, ``'threshold_reached'``,
+    ``'time_limit_reached'`` or ``'no_feasible_path'``); see the property
+    documentation for the exact meaning of each value. In particular it
+    distinguishes a genuinely infeasible instance (``'no_feasible_path'``)
+    from a search stopped by the time limit before any complete path was
+    found (``'time_limit_reached'`` with a degenerate result), which are
+    otherwise indistinguishable from the returned path alone (see below).
+
+    ``BiDirectional`` minimises the total cost. To use ``threshold`` for a
+    *maximisation* objective ("stop as soon as a solution better, i.e.
+    larger, than a given value is found"), negate every edge ``weight`` and
+    negate the target value: a path with original objective value > X is a
+    path with total (negated) cost < -X, so pass ``threshold=-X`` together
+    with ``threshold_strict=True`` (or ``threshold=-X`` alone for
+    original objective value >= X). The returned ``total_cost`` is then the
+    negated objective value of the returned path.
+
     When no resource-feasible ``Source -> Sink`` path exists, the reported
     result is a *degenerate* one that differs by direction:
     ``direction='forward'`` yields ``path == ['Source']`` with
@@ -207,12 +241,19 @@ class BiDirectional:
 
     A search stopped early by ``time_limit`` (or by ``threshold``) before any
     complete ``Source -> Sink`` path was accepted reports exactly the same
-    degenerate result as a genuinely infeasible instance; nothing
-    distinguishes the two. This matters in particular with
+    degenerate result as a genuinely infeasible instance; the returned path
+    alone does not distinguish the two -- check :attr:`termination_reason`
+    (``'no_feasible_path'`` versus ``'time_limit_reached'``) to tell them
+    apart. This matters in particular with
     ``require_all_visits=True``, where the first accepted path is much harder
     to reach than in the plain elementary shortest path problem. Either leave
     ``time_limit`` unset, or treat a degenerate result from a time limited run
-    as "unknown" rather than as "infeasible".
+    as "unknown" rather than as "infeasible". One asymmetry to be aware of:
+    with ``direction='both'`` the label-joining step still runs after a
+    timed-out main loop, so a time limited run may return a complete
+    ``Source -> Sink`` path (with ``'time_limit_reached'``) where
+    ``'forward'`` or ``'backward'`` would return the degenerate result
+    (pre-existing engine behaviour).
 
     .. _REFs : https://cspy.readthedocs.io/en/latest/ref.html
     .. _Tilk 2017: https://www.sciencedirect.com/science/article/pii/S0377221717302035
@@ -229,6 +270,7 @@ class BiDirectional:
         method: Optional[str] = "unprocessed",
         time_limit: Optional[Union[float, int]] = None,
         threshold: Optional[float] = None,
+        threshold_strict: bool = False,
         elementary: Optional[bool] = False,
         bounds_pruning: Optional[bool] = False,
         find_critical_res: Optional[bool] = False,
@@ -251,6 +293,7 @@ class BiDirectional:
     ):
         # Check inputs
         check(G, max_res, min_res, direction, REF_callback, __name__)
+        check_threshold_strict(threshold, threshold_strict, __name__)
         # check_seed(seed, __name__)
         check_native_windows(
             G,
@@ -339,6 +382,8 @@ class BiDirectional:
             self.bidirectional_cpp.setTimeLimit(time_limit)
         if threshold is not None and isinstance(threshold, (int, float)):
             self.bidirectional_cpp.setThreshold(threshold)
+        if threshold_strict:
+            self.bidirectional_cpp.setThresholdStrict(True)
         if isinstance(elementary, bool) and elementary:
             self.bidirectional_cpp.setElementary(True)
         if isinstance(bounds_pruning, bool) and bounds_pruning:
@@ -415,6 +460,51 @@ class BiDirectional:
             return list(res)
         else:
             return None
+
+    @property
+    def termination_reason(self):
+        """Why the last call to :meth:`run` stopped.
+
+        ``None`` before :meth:`run` has been called; afterwards one of the
+        following strings:
+
+        - ``'completed'``: the search processed every generated label (ran to
+          exhaustion) and a ``Source -> Sink`` path was found. This certifies
+          optimality only when the dominance rule is sound for the resource
+          extensions in use; the documented exception in this fork is the
+          ``'window_hard'`` policy, where an exhausted search may still have
+          pruned the optimum.
+        - ``'threshold_reached'``: a ``Source -> Sink`` path meeting the
+          threshold (total cost <= ``threshold``, or < with
+          ``threshold_strict=True``) was found and the search stopped early;
+          that path is the one returned. It is the first acceptable path
+          encountered, not necessarily the best one found so far.
+        - ``'time_limit_reached'``: the time limit expired before the search
+          could finish. A ``Source -> Sink`` path found before the limit (if
+          any) is still returned; with a degenerate result (see the class
+          Notes) the instance status is unknown, not proven infeasible.
+        - ``'no_feasible_path'``: the search processed every generated label
+          without finding any resource-feasible ``Source -> Sink`` path (the
+          instance is infeasible, under the same dominance soundness
+          assumptions as ``'completed'``).
+
+        Two caveats:
+
+        - :meth:`run` is single-shot per object: the internal search state is
+          not rebuilt between calls, so calling :meth:`run` a second time on
+          the same object returns a degenerate result and its
+          ``termination_reason`` is meaningless (it may even claim
+          ``'no_feasible_path'`` on a feasible instance). Build a fresh
+          ``BiDirectional`` object for every run.
+        - The time limit is checked before the threshold, so when both stop
+          conditions hold at the same iteration the reason is
+          ``'time_limit_reached'``. For the same reason a search whose last
+          iteration coincides with the time limit expiring may report
+          ``'time_limit_reached'`` instead of ``'completed'`` (conservative:
+          it never overstates how far the search got).
+        """
+        reason = self.bidirectional_cpp.getTerminationReason()
+        return None if reason == "not_run" else reason
 
     def check_critical_res(self):
         """After running the algorithm, one can check if critical resource is

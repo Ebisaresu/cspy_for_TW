@@ -2,6 +2,7 @@
 #define SRC_CC_BIDIRECTIONAL_H__
 
 #include <chrono> // timing (e.g. time_point)
+#include <string> // string (termination reason)
 #include <vector>
 
 // cspy
@@ -15,6 +16,31 @@
 #include "spdlog/spdlog.h" // after config.h as
 
 namespace bidirectional {
+
+/**
+ * Reason why the last call to `BiDirectional::run` stopped.
+ * @see BiDirectional::getTerminationReason for the user-facing strings and
+ * their exact meaning.
+ */
+enum class TerminationReason {
+  /// `run` has not been called yet
+  NOT_RUN,
+  /// The search processed every generated label (ran to exhaustion) and a
+  /// Source-Sink path was found. Note this is deliberately not called
+  /// "optimal": exhaustion certifies optimality only when the dominance rule
+  /// is sound for the resource extensions in use (for instance the
+  /// `window_hard` policy is a documented exception).
+  SEARCH_COMPLETED,
+  /// A Source-Sink path meeting the threshold was found and the search was
+  /// stopped early; that path is the one returned.
+  THRESHOLD_REACHED,
+  /// The time limit expired before the search could finish. A Source-Sink
+  /// path found before the limit (if any) is still returned.
+  TIME_LIMIT_REACHED,
+  /// The search processed every generated label without finding any
+  /// resource-feasible Source-Sink path.
+  NO_FEASIBLE_PATH
+};
 
 /**
  * BiDirectional algorithm. see docs
@@ -81,6 +107,34 @@ class BiDirectional {
   std::vector<double> getConsumedResources() const;
   /// Return the total cost
   double getTotalCost() const;
+  /**
+   * Return the reason why the last call to `run` stopped, as a string:
+   *   - "not_run": `run` has not been called yet.
+   *   - "completed": the search processed every generated label and a
+   *     Source-Sink path was found. This certifies optimality only when the
+   *     dominance rule is sound for the resource extensions in use.
+   *   - "threshold_reached": a Source-Sink path meeting the threshold was
+   *     found and the search stopped early; that path is the one returned.
+   *   - "time_limit_reached": the time limit expired before the search could
+   *     finish. A Source-Sink path found before the limit (if any) is still
+   *     returned; otherwise the result is degenerate and the instance status
+   *     is unknown (not proven infeasible).
+   *   - "no_feasible_path": the search processed every generated label
+   *     without finding any resource-feasible Source-Sink path.
+   *
+   * Two caveats:
+   *   - `run` is single-shot per object: the search containers are not reset
+   *     between calls, so a second call to `run` on the same object returns a
+   *     degenerate result and its termination reason is meaningless. Build a
+   *     fresh object for every run.
+   *   - The time limit is checked before the threshold, so when both stop
+   *     conditions hold at the same iteration the reason is
+   *     "time_limit_reached". For the same reason a search whose last
+   *     iteration coincides with the time limit expiring may report
+   *     "time_limit_reached" instead of "completed" (conservative: it never
+   *     overstates how far the search got).
+   */
+  std::string getTerminationReason() const;
   /// After running the algorithm, one can check if critical resource is tight
   /// (difference between final resource and maximum) and prints a message if it
   /// doesn't match to the one chosen in Params.
@@ -103,6 +157,10 @@ class BiDirectional {
   /// @see bidirectional::Params
   void setThreshold(const double& threshold_in) {
     params_ptr_->setThreshold(threshold_in);
+  }
+  /// @see bidirectional::Params
+  void setThresholdStrict(const bool& threshold_strict_in) {
+    params_ptr_->setThresholdStrict(threshold_strict_in);
   }
   /// @see bidirectional::Params
   void setElementary(const bool& elementary_in) {
@@ -160,6 +218,10 @@ class BiDirectional {
   // whether the search terminated early with a valid source-sink path
   bool       terminated_early_w_st_path_ = false;
   Directions terminated_early_w_st_path_direction_;
+  /// Why the last call to `run` stopped. Written only (never read) during the
+  /// search, so recording it cannot influence any search decision.
+  /// @see getTerminationReason
+  TerminationReason termination_reason_ = TerminationReason::NOT_RUN;
 
   /// Vectors with current maximum and minimum resources (first entry contains
   /// the dynamic halfway point).
@@ -319,6 +381,14 @@ class BiDirectional {
         (std::chrono::system_clock::now() - start_time_);
     return static_cast<double>(duration.count());
   }
+
+  /**
+   * Turn the provisional termination reason into the final one, after
+   * `postProcessing` has decided `best_label_`. A search that ran to
+   * exhaustion (provisionally SEARCH_COMPLETED) without producing any
+   * Source-Sink path becomes NO_FEASIBLE_PATH; every other reason is kept.
+   */
+  void finalizeTerminationReason();
 
   /**
    * The procedure "Join" or Algorithm 3 from Righini and Salani (2006).

@@ -1096,16 +1096,18 @@ equal-cost labels are broken.
    twelve customers, take seconds to minutes around fourteen to sixteen,
    and become impractical beyond about eighteen. Treat that as the exact
    ceiling and use a heuristic or a decomposition above it.
-8. **A truncated search is reported exactly like an infeasible instance.**
+8. **A truncated search returns the same path as an infeasible instance.**
    When `time_limit` (or `threshold`) stops the search before any complete
    `Source` -> `Sink` path has been accepted, the result is the degenerate
    `['Source']` with `total_cost` unset — byte for byte what a genuinely
-   infeasible instance returns, with no flag separating the two. This is
-   pre-existing engine behaviour, but `require_all_visits` makes it much
-   easier to hit, because the first accepted path is far deeper in the
-   search than in a plain elementary shortest path problem. Either leave
-   `time_limit` unset, or record that the run was time limited and read a
-   degenerate result from it as "unknown" rather than as "infeasible".
+   infeasible instance returns. This is pre-existing engine behaviour, but
+   `require_all_visits` makes it much easier to hit, because the first
+   accepted path is far deeper in the search than in a plain elementary
+   shortest path problem. The returned path alone cannot separate the two
+   cases; the `termination_reason` property (Section 10) can:
+   `'no_feasible_path'` is a proof of infeasibility, while
+   `'time_limit_reached'` with a degenerate result means the status is
+   unknown. Check it whenever `time_limit` is set.
 9. **C++ callers**: `BiDirectional::setRequiredNodes` must be called after
    `addNodes`, takes user ids, rejects the source and the sink, and rejects
    an empty required set. The bit index table is a hash map keyed by user
@@ -1120,6 +1122,264 @@ Because the SWIG interface gained a method, an out-of-date wheel in the
 venv shows up as `AttributeError: setRequiredNodes`. Rebuild and reinstall
 as in Section 7.
 
+## 10. Stopping as soon as a better solution is found
+
+Exact labelling pays for its optimality proof: most of the running time is
+spent proving that no better path exists, long after a good one has been
+found. When any solution better than a known value is enough — an incumbent
+to beat inside a branching scheme, or a target value in a satisficing
+application — the engine's `threshold` argument stops the search at the
+first acceptable complete path. This fork adds a strict variant of the
+comparison and, more importantly, an answer to the question the caller is
+then left with: *why did the search stop?*
+
+| Argument | Type / default | Meaning |
+|---|---|---|
+| `threshold` | `float` / `None` | Stop the search as soon as a resource-feasible `Source` -> `Sink` path with total cost `<= threshold` is accepted, and return that path. Upstream argument, unchanged |
+| `threshold_strict` | `bool` / `False` | **New in this fork.** When true, the comparison becomes strict: stop only on total cost `< threshold`. Pass the value of a known incumbent solution as `threshold` to stop only when a strictly better solution is found — with the default `<=` the incumbent's own value would stop the search immediately, proving nothing. Requires `threshold` to be a number (`None` and `NaN` are rejected); non-`bool` values are rejected |
+
+With `threshold_strict=False` (the default) the behaviour is exactly the
+upstream behaviour, bit for bit.
+
+### 10.1 Reading the stop: `termination_reason`
+
+After `run()`, the property `termination_reason` reports why the search
+stopped (before `run()` it is `None`):
+
+| Value | Meaning |
+|---|---|
+| `'completed'` | The search processed every generated label and a `Source` -> `Sink` path was found. This certifies optimality **only when the dominance rule is sound** for the resource extensions in use; the documented exception in this fork is the `window_hard` policy (Section 9.5, restriction 3), where an exhausted search may still have pruned the optimum. The value is deliberately not named `'optimal'` |
+| `'threshold_reached'` | A `Source` -> `Sink` path meeting the threshold was found and the search stopped early; that path is the one returned. It is the **first acceptable path encountered, not necessarily the best found so far**: the label queue is ordered by resource consumption, not by cost |
+| `'time_limit_reached'` | `time_limit` expired before the search could finish. A complete path found before the limit (if any) is still returned together with this reason; a degenerate result (Section 8, caveat 8) means the instance status is **unknown**, not proven infeasible |
+| `'no_feasible_path'` | The search processed every generated label without finding any resource-feasible `Source` -> `Sink` path: the instance is infeasible, under the same dominance-soundness proviso as `'completed'` |
+
+This closes the gap noted in Section 9.5, restriction 8: a genuinely
+infeasible instance (`'no_feasible_path'`) and a search truncated before
+its first complete path (`'time_limit_reached'` with a degenerate result)
+both return the same degenerate path, but are now told apart by the reason.
+
+### 10.2 Threshold and strict threshold on the six-customer TSPTW (executed code)
+
+The instance is the one of Section 9.2, with known optimum 33.
+
+```python
+"""Stop the six-customer TSPTW solve of Section 9.2 as soon as a tour
+below a target cost is found, and read the reason the search stopped."""
+import networkx as nx
+import numpy as np
+from cspy import BiDirectional
+
+n = 6
+travel = ((0, 11, 8, 5, 8, 5, 7), (9, 0, 7, 12, 3, 11, 7), (8, 12, 0, 4, 8, 3, 11),
+          (3, 4, 10, 0, 8, 3, 8), (10, 3, 3, 6, 0, 8, 4), (5, 8, 5, 12, 4, 0, 10),
+          (8, 4, 7, 5, 12, 4, 0))
+tw_a = (0, 39, 2, 38, 32, 2, 42)
+tw_b = (200, 59, 18, 60, 57, 13, 60)
+service = (0, 6, 2, 4, 5, 3, 1)
+horizon = float(tw_b[0])
+
+G = nx.DiGraph(n_res=2)
+for i in range(1, n + 1):
+    G.add_edge("Source", i, res_cost=np.array([1.0, float(travel[0][i])]),
+               weight=float(travel[0][i]))
+    G.add_edge(i, "Sink", res_cost=np.array([1.0, float(travel[i][0])]),
+               weight=float(travel[i][0]))
+    for j in range(1, n + 1):
+        if i != j:
+            G.add_edge(i, j, res_cost=np.array([1.0, float(travel[i][j])]),
+                       weight=float(travel[i][j]))
+
+time_windows = {i: (float(tw_a[i]), float(tw_b[i])) for i in range(1, n + 1)}
+service_times = {i: float(service[i]) for i in range(1, n + 1)}
+common = dict(direction="forward", elementary=True,
+              time_windows=time_windows, service_times=service_times,
+              require_all_visits=True)
+
+# (1) Satisficing: accept the first complete tour of cost <= 40.
+alg = BiDirectional(G, [float(n + 1), horizon], [0.0, 0.0],
+                    threshold=40.0, **common)
+print("(1) before run     :", alg.termination_reason)
+alg.run()
+print("(1) threshold 40   :", alg.termination_reason, "| cost", alg.total_cost,
+      "| tour", " -> ".join(str(v) for v in alg.path))
+
+# (2) Improving on a known solution: the optimum of this instance is 33.
+#     threshold_strict=True asks for a tour strictly below 33; none exists,
+#     so the search runs to exhaustion and proves it.
+alg = BiDirectional(G, [float(n + 1), horizon], [0.0, 0.0],
+                    threshold=33.0, threshold_strict=True, **common)
+alg.run()
+print("(2) strict below 33:", alg.termination_reason, "| cost", alg.total_cost)
+
+# (3) Same target without threshold_strict: cost <= 33 is acceptable, so the
+#     optimal tour itself stops the search.
+alg = BiDirectional(G, [float(n + 1), horizon], [0.0, 0.0],
+                    threshold=33.0, **common)
+alg.run()
+print("(3) at most 33     :", alg.termination_reason, "| cost", alg.total_cost)
+```
+
+Output (actual output):
+
+```text
+(1) before run     : None
+(1) threshold 40   : threshold_reached | cost 33.0 | tour Source -> 2 -> 5 -> 4 -> 1 -> 6 -> 3 -> Sink
+(2) strict below 33: completed | cost 33.0
+(3) at most 33     : threshold_reached | cost 33.0
+```
+
+How to read this. Run (1) asked for any tour of cost at most 40 and the
+first accepted tour happened to be the optimum — a coincidence of this
+instance, not a guarantee. Run (2) is the intended use of
+`threshold_strict`: the incumbent value 33 is passed as the threshold, no
+strictly better tour exists, so the search runs to exhaustion, reports
+`'completed'`, and still returns the best tour it found. Run (3) shows why
+the strict variant is needed: with the default `<=` comparison the
+incumbent's own value stops the search at once, which proves nothing about
+improvability.
+
+### 10.3 Infeasible or merely truncated? (executed code)
+
+```python
+"""Telling a genuinely infeasible instance apart from a search stopped by
+the time limit, on the six-customer TSPTW instance of Section 9.2."""
+# ... same graph construction as in Section 10.2 ...
+common = dict(direction="forward", elementary=True,
+              service_times=service_times, require_all_visits=True)
+
+# (1) Genuinely infeasible: a horizon of 50 is too short for any full tour
+#     (the optimal tour returns to the depot at time 66). The search runs to
+#     exhaustion and proves it.
+alg = BiDirectional(G, [float(n + 1), 50.0], [0.0, 0.0],
+                    time_windows={i: (float(tw_a[i]), min(float(tw_b[i]), 50.0))
+                                  for i in range(1, n + 1)}, **common)
+alg.run()
+print("(1) horizon 50 :", alg.termination_reason, "| path", alg.path)
+
+# (2) Feasible but stopped immediately by the time limit: the same
+#     degenerate path, but the reason says the status is unknown.
+alg = BiDirectional(G, [float(n + 1), 200.0], [0.0, 0.0],
+                    time_windows=time_windows, time_limit=0.0, **common)
+alg.run()
+print("(2) time limit :", alg.termination_reason, "| path", alg.path)
+```
+
+Output (actual output):
+
+```text
+(1) horizon 50 : no_feasible_path | path ['Source']
+(2) time limit : time_limit_reached | path ['Source']
+```
+
+The returned path is identical in both runs; only `termination_reason`
+separates "there is no tour" from "the search never got far enough to say".
+Section 9.5, restriction 8 explains why this distinction matters especially
+under `require_all_visits`.
+
+### 10.4 Maximisation objectives (executed code)
+
+`BiDirectional` minimises. To stop as soon as a solution **better than a
+given value for a maximisation objective** is found, negate every edge
+weight and negate the target: a path with original objective value $> X$ is
+a path with total (negated) cost $< -X$, so pass `threshold=-X` together
+with `threshold_strict=True` (or `threshold=-X` alone for original
+objective value $\ge X$). The returned `total_cost` is the negated
+objective value of the returned path.
+
+```python
+"""Use threshold for a maximisation objective: negate the edge weights and
+the target value, and ask for a strictly smaller (negated) cost."""
+import networkx as nx
+import numpy as np
+from cspy import BiDirectional
+
+# Each edge carries a reward; the goal is a path whose total reward is
+# larger than a given target. BiDirectional minimises, so store
+# weight = -reward and translate "reward > 12" into "cost < -12".
+G = nx.DiGraph(n_res=2)
+edges = [("Source", "a", 5), ("Source", "b", 3), ("a", "b", 4), ("a", "c", 2),
+         ("b", "c", 6), ("c", "Sink", 3), ("b", "Sink", 1), ("a", "Sink", 1)]
+for (u, v, reward) in edges:
+    G.add_edge(u, v, res_cost=np.array([1.0, 1.0]), weight=float(-reward))
+
+# (1) Stop as soon as a path with total reward > 12 is found.
+alg = BiDirectional(G, [10.0, 10.0], [0.0, 0.0], direction="forward",
+                    threshold=-12.0, threshold_strict=True)
+alg.run()
+print("(1) reward > 12 :", alg.termination_reason,
+      "| path", alg.path, "| reward", -alg.total_cost)
+
+# (2) An unreachable target: no path has total reward > 18, so the search
+#     runs to exhaustion, proves it, and still returns the best path found.
+alg = BiDirectional(G, [10.0, 10.0], [0.0, 0.0], direction="forward",
+                    threshold=-18.0, threshold_strict=True)
+alg.run()
+print("(2) reward > 18 :", alg.termination_reason,
+      "| path", alg.path, "| reward", -alg.total_cost)
+```
+
+Output (actual output):
+
+```text
+(1) reward > 12 : threshold_reached | path ['Source', 'a', 'b', 'c', 'Sink'] | reward 18.0
+(2) reward > 18 : completed | path ['Source', 'a', 'b', 'c', 'Sink'] | reward 18.0
+```
+
+Run (1) stops at the first path whose reward exceeds 12 (here 18). Run (2)
+asks for a reward strictly above the optimum 18, so nothing can stop the
+search early; it completes, which — under sound dominance — proves that no
+better path exists, and the best path found is returned anyway.
+
+### 10.5 Caveats
+
+1. **The returned path is the first acceptable one, not the best so far.**
+   The label queue is ordered by resource consumption, not by cost, so a
+   `'threshold_reached'` stop returns whichever acceptable path the search
+   reached first. For satisficing ("any solution better than X") this is
+   exactly right; for "the best solution found within a budget" it is not —
+   use `time_limit` and read the returned path as a heuristic solution.
+2. **`'completed'` is not spelled `'optimal'` on purpose.** Exhausting the
+   label queue certifies optimality only when the dominance rule is sound
+   for the resource extensions in use. The documented exception in this
+   fork is `window_hard` (Section 9.5, restriction 3); a non-monotone
+   custom `REF_callback` would be another. Under the standard additive and
+   `window_wait` resources, `'completed'` does mean the returned path is
+   optimal.
+3. **The time limit takes precedence over the threshold.** Both conditions
+   are checked once per iteration of the main loop, time limit first, so a
+   run in which both hold at the same iteration reports
+   `'time_limit_reached'`. For the same reason a search whose final
+   iteration coincides with the limit expiring may report
+   `'time_limit_reached'` instead of `'completed'` — conservative, in that
+   the reason never overstates how far the search got.
+4. **`run()` is single-shot per object.** The internal search state is not
+   rebuilt between calls, so a second `run()` on the same object returns a
+   degenerate result and its `termination_reason` is meaningless. Build a
+   fresh `BiDirectional` object for every solve (the column generation loop
+   of Section 6 already does).
+5. **`direction='both'` after a timeout is asymmetric.** The label-joining
+   step still runs after a timed-out main loop, so a time-limited `both`
+   run may return a complete `Source` -> `Sink` path (with
+   `'time_limit_reached'`) where `'forward'` or `'backward'` would return
+   the degenerate result. Pre-existing engine behaviour; the reason
+   reporting does not change it.
+6. **Argument validation.** `threshold_strict=True` without a usable
+   threshold is rejected in the constructor, with the other collected
+   argument errors: `threshold=None` and `threshold=float('nan')` both
+   raise `threshold_strict=True requires threshold to be a number` (a `NaN`
+   threshold is ignored by the algorithm, so accepting it would silently
+   disable the requested strictness), and a non-`bool` value raises
+   `threshold_strict must be a bool, got int`.
+
+The C++ side records the reason in an enumeration
+(`TerminationReason` in `src/cc/bidirectional.h`, read through
+`getTerminationReason()`); the recording is write-only — no search branch
+reads it — so default behaviour is unchanged. The regression tests are in
+`test/python/tests_termination_reason.py`. As with Section 9, the SWIG
+interface gained a method, so an out-of-date wheel in the venv shows up as
+`AttributeError: getTerminationReason`; rebuild and reinstall as in
+Section 7.
+
 ---
 
 *Implementation verification*: every code example in this guide was actually
@@ -1129,5 +1389,7 @@ are verbatim copies of real runs. The implementation itself passes roughly
 director REF written independently from the PoC-validated formulas and exact
 brute-force cross-checking with `Fraction`. The permanent regression tests
 are in `test/python/tests_native_time_windows.py` (65 cases, of which 33
-cover the mandatory visits of Section 9); for the primary source of the
-formulas and caveats, see `docs/ref.rst`.
+cover the mandatory visits of Section 9) and
+`test/python/tests_termination_reason.py` (18 cases covering the stopping
+features of Section 10); for the primary source of the formulas and
+caveats, see `docs/ref.rst`.

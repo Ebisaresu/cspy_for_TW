@@ -54,6 +54,22 @@ double BiDirectional::getTotalCost() const {
   return best_label_->weight;
 }
 
+std::string BiDirectional::getTerminationReason() const {
+  switch (termination_reason_) {
+    case TerminationReason::SEARCH_COMPLETED:
+      return "completed";
+    case TerminationReason::THRESHOLD_REACHED:
+      return "threshold_reached";
+    case TerminationReason::TIME_LIMIT_REACHED:
+      return "time_limit_reached";
+    case TerminationReason::NO_FEASIBLE_PATH:
+      return "no_feasible_path";
+    case TerminationReason::NOT_RUN:
+    default:
+      return "not_run";
+  }
+}
+
 void BiDirectional::checkCriticalRes() const {
   const std::vector<double>& res      = best_label_->resource_consumption;
   double                     min_diff = std::numeric_limits<double>::infinity();
@@ -139,6 +155,16 @@ void BiDirectional::run() {
     }
   }
   start_time_ = std::chrono::system_clock::now();
+  // Reset the early-termination state from any previous call to `run`, so a
+  // stale flag cannot leak into this run's post-processing. Note `run` is
+  // still single-shot per object: the search containers are not rebuilt, so
+  // a second call returns a degenerate result (see getTerminationReason).
+  terminated_early_w_st_path_ = false;
+  // Provisional reason: exhaustion. Overwritten by `terminate` (time limit)
+  // or `checkValidLabel` (threshold) when they stop the search early, and
+  // turned into NO_FEASIBLE_PATH by `finalizeTerminationReason` when the
+  // exhausted search produced no Source-Sink path.
+  termination_reason_ = TerminationReason::SEARCH_COMPLETED;
   init();
 
   SPDLOG_INFO("\t Time (s) \t | \t Solution");
@@ -154,6 +180,7 @@ void BiDirectional::run() {
     }
   }
   postProcessing();
+  finalizeTerminationReason();
 }
 
 /* Private methods */
@@ -361,6 +388,7 @@ bool BiDirectional::terminate(
   const double& timediff_sec = getElapsedTime();
   if (!std::isnan(params_ptr_->time_limit) &&
       timediff_sec >= params_ptr_->time_limit) {
+    termination_reason_ = TerminationReason::TIME_LIMIT_REACHED;
     return true;
   }
   return checkValidLabel(direction, label);
@@ -389,9 +417,11 @@ bool BiDirectional::checkValidLabel(
   if (label.vertex.lemon_id != -1 &&
       label.checkStPath(graph_ptr_->source.user_id, graph_ptr_->sink.user_id)) {
     if (!std::isnan(params_ptr_->threshold) &&
-        label.checkThreshold(params_ptr_->threshold)) {
+        label.checkThreshold(
+            params_ptr_->threshold, params_ptr_->threshold_strict)) {
       terminated_early_w_st_path_           = true;
       terminated_early_w_st_path_direction_ = direction;
+      termination_reason_ = TerminationReason::THRESHOLD_REACHED;
       return true;
     }
   }
@@ -717,6 +747,25 @@ void BiDirectional::postProcessing() {
   SPDLOG_INFO(
       "************************************************************************"
       "********");
+}
+
+void BiDirectional::finalizeTerminationReason() {
+  // Early stops (threshold, time limit) already carry their final reason.
+  if (termination_reason_ != TerminationReason::SEARCH_COMPLETED) {
+    return;
+  }
+  // The search ran to exhaustion; decide between "completed" (a Source-Sink
+  // path was found) and "no_feasible_path" (none exists). Guard against the
+  // dummy label (lemon_id == -1, empty path) left when no path was found:
+  // checkStPath reads partial_path[0] and must not be called on it.
+  const bool found_source_sink_path =
+      (best_label_ && best_label_->vertex.lemon_id != -1 &&
+       !best_label_->partial_path.empty() &&
+       best_label_->checkStPath(
+           graph_ptr_->source.user_id, graph_ptr_->sink.user_id));
+  if (!found_source_sink_path) {
+    termination_reason_ = TerminationReason::NO_FEASIBLE_PATH;
+  }
 }
 
 double BiDirectional::getUB() {

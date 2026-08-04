@@ -45,6 +45,7 @@ using namespace bidirectional;
 %rename("%s") bidirectional::BiDirectional::setMethod;
 %rename("%s") bidirectional::BiDirectional::setTimeLimit;
 %rename("%s") bidirectional::BiDirectional::setThreshold;
+%rename("%s") bidirectional::BiDirectional::setThresholdStrict;
 %rename("%s") bidirectional::BiDirectional::setElementary;
 %rename("%s") bidirectional::BiDirectional::setBoundsPruning;
 %rename("%s") bidirectional::BiDirectional::setFindCriticalRes;
@@ -56,6 +57,7 @@ using namespace bidirectional;
 %rename("%s") bidirectional::BiDirectional::getPath;
 %rename("%s") bidirectional::BiDirectional::getTotalCost;
 %rename("%s") bidirectional::BiDirectional::getConsumedResources;
+%rename("%s") bidirectional::BiDirectional::getTerminationReason;
 %rename("%s") bidirectional::BiDirectional::checkCriticalRes;
 
 /* Expose methods of REFCallback */

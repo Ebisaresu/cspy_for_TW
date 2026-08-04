@@ -35,7 +35,14 @@ class Params {
   /// double with time limit in seconds
   double time_limit = std::nan("na");
   /// double with threshold to stop search with total cost <= threshold
+  /// (or < threshold when threshold_strict is true)
   double threshold = std::nan("na");
+  /// bool with whether the threshold comparison is strict. When false
+  /// (default) the search stops on a Source-Sink path with total cost
+  /// <= threshold; when true only on total cost < threshold (strictly better
+  /// than the threshold, e.g. a known incumbent value). Unused while
+  /// threshold is not set.
+  bool threshold_strict = false;
   /// bool with whether output path is required to be elementary
   bool elementary = false;
   /// bool with whether 2-cycles should be eliminated for non-elementary RCSPP
@@ -94,6 +101,9 @@ class Params {
   void setMethod(const std::string& method_in) { method = method_in; }
   void setTimeLimit(const double& time_limit_in) { time_limit = time_limit_in; }
   void setThreshold(const double& threshold_in) { threshold = threshold_in; }
+  void setThresholdStrict(const bool& threshold_strict_in) {
+    threshold_strict = threshold_strict_in;
+  }
   void setElementary(const bool& elementary_in) { elementary = elementary_in; }
   void setTwoCycleElimination(const bool& two_cycle_elimination_in) {
     two_cycle_elimination = two_cycle_elimination_in;

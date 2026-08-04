@@ -1,5 +1,5 @@
 from collections.abc import Iterable, Mapping
-from math import isfinite
+from math import isfinite, isnan
 from time import time
 from typing import Union
 from logging import getLogger
@@ -577,6 +577,65 @@ def _check_window_dict(G, what, windows, max_res, r, errors):
                 b,
                 r,
                 max_res[r],
+            )
+
+
+def check_threshold_strict(threshold, threshold_strict, algorithm=None):
+    """Validate the ``threshold_strict`` argument of
+    :class:`cspy.BiDirectional`.
+
+    Parameters
+    ----------
+    threshold : float or None
+        the acceptance threshold, or ``None`` when unset.
+
+    threshold_strict : bool
+        whether the threshold comparison is strict (``total cost <
+        threshold``) instead of the default ``total cost <= threshold``.
+
+    :raises: Raises an exception if ``threshold_strict`` is not a bool, or if
+        it is True while ``threshold`` is not an actual number (unset,
+        non-numeric, or NaN): the strict comparison would silently have
+        nothing to compare against, because a threshold that is not a
+        non-NaN number is ignored by the algorithm.
+    """
+    if not isinstance(threshold_strict, bool):
+        raise Exception(
+            "{}".format(
+                TypeError(
+                    "threshold_strict must be a bool, got {}".format(
+                        type(threshold_strict).__name__
+                    )
+                )
+            )
+        )
+    if threshold_strict:
+        # `threshold` must be a real number for the strict comparison to have
+        # anything to act on: a None, non-numeric or NaN threshold is ignored
+        # by the algorithm, which would silently disable threshold_strict.
+        # Reject bool explicitly: it is an int subclass but not a threshold.
+        if (
+            threshold is None
+            or isinstance(threshold, bool)
+            or not isinstance(threshold, (int, float))
+        ):
+            raise Exception(
+                "{}".format(
+                    TypeError(
+                        "threshold_strict=True requires threshold to be a"
+                        " number, got {}".format(type(threshold).__name__)
+                    )
+                )
+            )
+        if isnan(threshold):
+            raise Exception(
+                "{}".format(
+                    ValueError(
+                        "threshold_strict=True requires threshold to be a"
+                        " number, got nan (a nan threshold is ignored by"
+                        " the algorithm)"
+                    )
+                )
             )
 
 

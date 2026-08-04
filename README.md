@@ -332,11 +332,26 @@ else with an explanatory error. Two things to keep in mind: an exact TSPTW solve
 is exponential in the number of customers (on an Apple M1 with 8 GB, well under
 a second up to about twelve customers, seconds to minutes at fourteen to
 sixteen, impractical beyond about eighteen), and a run cut short by `time_limit`
-reports the same degenerate `["Source"]` as a genuinely infeasible instance, so
-it must be read as "unknown" rather than "infeasible". Worked examples, the
-soundness argument, the comparison against the visit indicator encoding and the
-remaining caveats are in
+returns the same degenerate `["Source"]` as a genuinely infeasible instance —
+check the `termination_reason` property (see
+[Stopping at a target value](#stopping-at-a-target-value)) to tell the two
+apart. Worked examples, the soundness argument, the comparison against the
+visit indicator encoding and the remaining caveats are in
 [`NATIVE_TW_GUIDE.md`](tsptw_example/NATIVE_TW_GUIDE.md) Section 9.
+
+### Stopping at a target value
+
+The upstream `threshold` argument stops the search at the first complete path
+of total cost at most the given value; this fork adds `threshold_strict=True`,
+which stops only on a strictly smaller cost, so the value of a known incumbent
+solution can be passed as the threshold to stop exactly when a true improvement
+is found (for a maximisation objective, negate the edge weights and the
+target). After `run()`, the new `termination_reason` property reports why the
+search stopped — `'completed'`, `'threshold_reached'`, `'time_limit_reached'`
+or `'no_feasible_path'` — which in particular distinguishes a proven-infeasible
+instance from a search truncated before it found any complete path. Executed
+examples, the exact meaning of each value and the full list of caveats are in
+[`NATIVE_TW_GUIDE.md`](tsptw_example/NATIVE_TW_GUIDE.md) Section 10.
 
 ### Performance
 
@@ -358,6 +373,7 @@ loose bound on the critical resource, `both` is instead several times slower tha
 - [`tsptw_example/TSPTW_GUIDE.md`](tsptw_example/TSPTW_GUIDE.md) : teaching guide on solving TSPTW exactly with a Python REF, and the modelling background (visit flags, dominance) both interfaces share.
 - [`tsptw_example/tsptw_cspy.py`](tsptw_example/tsptw_cspy.py) : runnable TSPTW example.
 - [`test/python/tests_native_time_windows.py`](test/python/tests_native_time_windows.py) : regression tests for the native interface.
+- [`test/python/tests_termination_reason.py`](test/python/tests_termination_reason.py) : regression tests for `threshold_strict` and `termination_reason`.
 
 
 ## Building

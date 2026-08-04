@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+ - `BiDirectional(..., threshold_strict=True)`: make the `threshold`
+   comparison strict, so the search stops only on a complete path with total
+   cost strictly below the threshold (instead of the upstream `<=`). Passing
+   the value of a known incumbent solution as `threshold` then stops the
+   search exactly when a strictly better solution is found, and otherwise
+   runs it to completion. Requires `threshold` to be set to a real number:
+   `None`, `NaN` and non-numeric values are rejected by the new
+   `cspy.checking.check_threshold_strict`, as is a non-`bool`
+   `threshold_strict`. The default `False` keeps the upstream comparison
+   unchanged.
+ - `BiDirectional.termination_reason`: after `run()`, reports why the search
+   stopped as one of `'completed'` (every generated label processed; this
+   certifies optimality only when the dominance rule is sound for the
+   resource extensions in use, which is why the value is not named
+   `'optimal'`), `'threshold_reached'` (the first path meeting the threshold
+   is returned; not necessarily the best found so far), `'time_limit_reached'`
+   (a complete path found before the limit is still returned; a degenerate
+   result means the instance status is unknown) and `'no_feasible_path'`
+   (the exhausted search proved that no resource-feasible `Source`-`Sink`
+   path exists). `None` before `run()`. This distinguishes a genuinely
+   infeasible instance from a search truncated before its first complete
+   path, which previously returned byte-identical degenerate results.
+   Backed by the new C++ enumeration `TerminationReason` and
+   `BiDirectional::getTerminationReason` (exposed to Python through SWIG);
+   the recording is write-only and never read by the search, so the default
+   behaviour is unchanged.
  - `BiDirectional(..., require_all_visits=True, required_nodes=...)`: restrict
    the search to `Source`-`Sink` paths visiting every node of a given set, so
    that the Traveling Salesman Problem with Time Windows (TSPTW) can be solved
@@ -37,6 +63,12 @@ default behaviour was verified to be byte-identical to the previous build over
 
 ### Fixed
 
+ - `BiDirectional::run` now resets the internal early-termination flag at the
+   start of each call, so a stale flag from a previous call can no longer
+   leak into a later run's post-processing. Note that `run` remains
+   single-shot per object (the search containers are not rebuilt, so a second
+   call returns a degenerate result and a meaningless termination reason);
+   this is now documented on `termination_reason` and in the C++ header.
  - `BiDirectional` now keeps a reference to a user supplied `REF_callback`.
    The C++ side stores only a raw pointer, so passing a temporary
    (`BiDirectional(..., REF_callback=MyCallback())`) used to let the object be
