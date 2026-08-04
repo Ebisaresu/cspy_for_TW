@@ -185,13 +185,16 @@ void BiDirectional::runPreprocessing() {
 
   if (params_ptr_->bounds_pruning) {
     SPDLOG_INFO("Setting lower bounds.");
+    // checkPrimalBound completes a partial path with lower_bound_weight, so
+    // the forward search needs the cost-to-go to the sink (backward shortest
+    // paths) and the backward search the cost from the source (forward ones).
     if (params_ptr_->direction == BOTH || params_ptr_->direction == FWD) {
       lowerBoundWeight(
-          fwd_search_ptr_->lower_bound_weight.get(), *graph_ptr_, true);
+          fwd_search_ptr_->lower_bound_weight.get(), *graph_ptr_, false);
     }
     if (params_ptr_->direction == BOTH || params_ptr_->direction == BWD) {
       lowerBoundWeight(
-          bwd_search_ptr_->lower_bound_weight.get(), *graph_ptr_, false);
+          bwd_search_ptr_->lower_bound_weight.get(), *graph_ptr_, true);
     }
   }
 }

@@ -341,8 +341,8 @@ class BiDirectional:
             self.bidirectional_cpp.setThreshold(threshold)
         if isinstance(elementary, bool) and elementary:
             self.bidirectional_cpp.setElementary(True)
-        if isinstance(bounds_pruning, bool) and not bounds_pruning:
-            self.bidirectional_cpp.setBoundsPruning(bounds_pruning)
+        if isinstance(bounds_pruning, bool) and bounds_pruning:
+            self.bidirectional_cpp.setBoundsPruning(True)
         if isinstance(find_critical_res, bool) and find_critical_res:
             self.bidirectional_cpp.setFindCriticalRes(True)
         if isinstance(critical_res, int) and critical_res != 0:
