@@ -5,7 +5,7 @@ from numpy import array
 
 from cspy_tw import GreedyElim
 
-from utils import TestingBase
+from utils import TestingBase, TIME_LIMIT_TOLERANCE
 
 
 class TestsGreedyElimination(TestingBase):
@@ -51,7 +51,7 @@ class TestsGreedyElimination(TestingBase):
         alg = GreedyElim(self.G, self.max_res, self.min_res, time_limit=0.001)
         start = time()
         alg.run()
-        self.assertTrue(time() - start <= 0.002)
+        self.assertTrue(time() - start <= TIME_LIMIT_TOLERANCE)
         self.check_result(
             alg, self.result_path, self.total_cost, self.consumed_resources
         )
@@ -69,7 +69,7 @@ class TestsGreedyElimination(TestingBase):
         )
         start = time()
         alg.run()
-        self.assertTrue(time() - start <= 0.002)
+        self.assertTrue(time() - start <= TIME_LIMIT_TOLERANCE)
         self.check_result(alg, ["Source", "A", "B", "Sink"], 8, [3, 4.3])
 
     def test_astar_time_limit(self):
@@ -79,7 +79,7 @@ class TestsGreedyElimination(TestingBase):
         )
         start = time()
         alg.run()
-        self.assertTrue(time() - start <= 0.002)
+        self.assertTrue(time() - start <= TIME_LIMIT_TOLERANCE)
         self.check_result(
             alg, self.result_path, self.total_cost, self.consumed_resources
         )
@@ -106,7 +106,7 @@ class TestsGreedyElimination(TestingBase):
         )
         start = time()
         alg.run()
-        self.assertTrue(time() - start <= 0.002)
+        self.assertTrue(time() - start <= TIME_LIMIT_TOLERANCE)
         self.check_result(
             alg, self.result_path, self.total_cost, self.consumed_resources
         )

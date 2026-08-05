@@ -3,7 +3,7 @@ from time import time
 from networkx import DiGraph
 
 from cspy_tw import BiDirectional
-from utils import TestingBase
+from utils import TestingBase, TIME_LIMIT_TOLERANCE
 
 
 class TestsBiDirectional(TestingBase):
@@ -59,7 +59,7 @@ class TestsBiDirectional(TestingBase):
         )
         start = time()
         alg.run()
-        self.assertTrue(time() - start <= 0.001 + 1e-3)
+        self.assertTrue(time() - start <= TIME_LIMIT_TOLERANCE)
         self.check_result(
             alg, self.result_path, self.total_cost, self.consumed_resources
         )
@@ -104,7 +104,7 @@ class TestsBiDirectional(TestingBase):
         )
         start = time()
         alg.run()
-        self.assertTrue(time() - start <= 0.001 + 1e-3)
+        self.assertTrue(time() - start <= TIME_LIMIT_TOLERANCE)
         self.check_result(
             alg, self.result_path, self.total_cost, self.consumed_resources
         )

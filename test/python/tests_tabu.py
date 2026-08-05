@@ -6,7 +6,7 @@ from numpy import array
 
 from cspy_tw.algorithms.tabu import Tabu
 
-from utils import TestingBase
+from utils import TestingBase, TIME_LIMIT_TOLERANCE
 
 
 class TestsTabu(TestingBase):
@@ -49,7 +49,7 @@ class TestsTabu(TestingBase):
         start = time()
         alg.run()
         # Fudge for windows workflow
-        self.assertTrue(time() - start <= 0.002)
+        self.assertTrue(time() - start <= TIME_LIMIT_TOLERANCE)
         self.check_result(
             alg, self.result_path, self.total_cost, self.consumed_resources
         )
@@ -63,7 +63,7 @@ class TestsTabu(TestingBase):
         alg = Tabu(self.G, self.max_res, self.min_res, time_limit=0.001, threshold=0)
         start = time()
         alg.run()
-        self.assertTrue(time() - start <= 0.002)
+        self.assertTrue(time() - start <= TIME_LIMIT_TOLERANCE)
         self.check_result(
             alg, self.result_path, self.total_cost, self.consumed_resources
         )
@@ -75,7 +75,7 @@ class TestsTabu(TestingBase):
         )
         start = time()
         alg.run()
-        self.assertTrue(time() - start <= 0.002)
+        self.assertTrue(time() - start <= TIME_LIMIT_TOLERANCE)
         self.check_result(
             alg, self.result_path, self.total_cost, self.consumed_resources
         )
@@ -100,7 +100,7 @@ class TestsTabu(TestingBase):
         )
         start = time()
         alg.run()
-        self.assertTrue(time() - start <= 0.002)
+        self.assertTrue(time() - start <= TIME_LIMIT_TOLERANCE)
         self.check_result(
             alg, self.result_path, self.total_cost, self.consumed_resources
         )
