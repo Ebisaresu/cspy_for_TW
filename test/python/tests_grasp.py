@@ -1,5 +1,7 @@
+import random
+
 from networkx import DiGraph
-from numpy import array
+from numpy import array, random as numpy_random
 
 from cspy_tw.algorithms.grasp import GRASP
 
@@ -13,6 +15,18 @@ class TestsGRASP(TestingBase):
     """
 
     def setUp(self):
+        # GRASP is a randomised heuristic. It draws from both the random module
+        # and numpy's global generator and takes no seed of its own, so left
+        # alone it occasionally returns a different path, or none at all, and
+        # the assertions below then fail. Measured over 2000 runs of this very
+        # instance, that happens about once in 200. A wheel matrix runs this
+        # test once per interpreter per platform, twenty five times in all, so
+        # roughly one build in ten used to fail somewhere; that is what broke
+        # the Windows leg on CPython 3.10. Seeding both generators makes the
+        # draw the same on every machine.
+        random.seed(0)
+        numpy_random.seed(0)
+
         self.max_res, self.min_res = [5, 5], [0, 0]
 
         # Create digraph with a resource infeasible minimum cost path
