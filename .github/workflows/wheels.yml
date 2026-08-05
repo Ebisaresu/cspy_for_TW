@@ -215,10 +215,18 @@ jobs:
           fi
           # A release that does not exist yet is created as a draft on
           # purpose. Nothing becomes publicly visible until a human presses
-          # publish. --target pins it to the existing tag.
+          # publish.
+          #
+          # No --target. It sets target_commitish, which GitHub accepts only as
+          # a branch name or a commit SHA, and which it ignores outright when
+          # the tag already exists. Passing the tag name was rejected:
+          #   HTTP 422: Validation Failed
+          #   Release.target_commitish is invalid
+          # What the option was there for -- not inventing a tag from a typo --
+          # is already handled by the guard above, which refuses to go on
+          # unless the tag exists.
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --draft --title "$TAG" \
-              --target "$TAG" \
               --notes "Wheels built by GitHub Actions."
           fi
           gh release upload "$TAG" wheelhouse/*.whl --clobber
