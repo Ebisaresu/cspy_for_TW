@@ -28,6 +28,26 @@ set_target_properties(
 
 target_link_libraries(BiDirectionalCpp PRIVATE LEMON::LEMON)
 
+if(MSVC)
+  # spdlog is consumed header-only here: only its include directory is added
+  # above, and the spdlog CMake target is never linked. The /utf-8 option that
+  # target carries as a PUBLIC usage requirement therefore never reaches this
+  # project, and the fmt implementation bundled with spdlog refuses to compile
+  # without it:
+  #   error C2338: static_assert failed:
+  #   'Unicode support requires compiling with /utf-8'
+  # PUBLIC, so that the SWIG wrapper, which includes the same headers through
+  # bidirectional.h, is compiled with it too.
+  target_compile_options(BiDirectionalCpp PUBLIC /utf-8)
+  # spdlog reaches <windows.h>. Its min and max are function-like macros, and
+  # the preprocessor expands those wherever the token is followed by an opening
+  # parenthesis, including in the qualified std::min( and std::max( calls in
+  # this code. NOMINMAX suppresses them. WIN32_LEAN_AND_MEAN only trims what
+  # <windows.h> pulls in, which keeps later collisions less likely.
+  target_compile_definitions(BiDirectionalCpp PUBLIC NOMINMAX
+                                                     WIN32_LEAN_AND_MEAN)
+endif()
+
 add_library(${PROJECT_NAME}::BiDirectionalCpp ALIAS BiDirectionalCpp)
 
 # Install
