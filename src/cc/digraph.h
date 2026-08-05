@@ -61,7 +61,15 @@ class ResourceMap : public lemon::MapBase<LemonArc, double> {
       : resource_map(resource_map_in), r(r_in){};
 };
 
-enum NegativeCostCyclePresent { TRUE, FALSE, UNKNOWN };
+/**
+ * Whether the graph is known to contain a negative cost cycle.
+ * The enumerators are deliberately not called TRUE/FALSE: on Windows those
+ * two names are object-like macros defined by <windows.h>, so the compiler
+ * would replace them with 1/0 before this declaration is even parsed. A
+ * scoped enum does not protect against that, because macro replacement
+ * happens before any name lookup, hence the distinct enumerator names.
+ */
+enum class NegativeCostCyclePresent { PRESENT, ABSENT, UNKNOWN };
 
 /**
  * Directed graph wrapper to create and query a lemon::SmartDigraph.

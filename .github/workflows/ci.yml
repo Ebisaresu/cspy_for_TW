@@ -45,6 +45,54 @@ jobs:
       - name: Run the Python tests
         run: python .github/scripts/run_tests.py
 
+  python-windows:
+    name: Build the wheel and run the Python tests on Windows
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      # One interpreter, not the five the wheels are built for. This job exists
+      # to catch what only Windows catches -- a name that collides with a macro
+      # in <windows.h>, a header the Microsoft compiler wants and gcc does not,
+      # a path assembled with a forward slash -- and none of that depends on
+      # which CPython is in front of it. wheels.yml covers the full range, but
+      # it only runs on a tag or by hand, so without this job the first Windows
+      # build of a change would happen after the change was already released.
+      - name: Build the wheel through the build backend
+        run: python -m pip wheel . --no-deps -w wheelhouse
+
+      # Not "pip install wheelhouse/*.whl" as in the job above. The default
+      # shell here is PowerShell, which passes the pattern through unexpanded
+      # and leaves pip to report a file called "*.whl" that does not exist.
+      - name: Install the wheel
+        shell: pwsh
+        run: |
+          $wheel = Get-ChildItem wheelhouse\*.whl | Select-Object -First 1
+          Write-Host "Installing $($wheel.Name)"
+          python -m pip install $wheel.FullName
+
+      - name: Show what was installed
+        run: python -m pip show cspy-tw
+
+      # The test suite imports the package as well, so this step only exists to
+      # separate two failures the suite would report as one: an extension that
+      # cannot be loaded at all, and a test that fails once it is loaded. On
+      # Windows the first is a real possibility even after a clean build,
+      # because the extension imports the Visual C++ runtime and a missing
+      # library shows up as an ImportError here rather than as a build error
+      # above. It will not fail on this runner -- Visual Studio is installed,
+      # so the runtime is present -- which is exactly why it says nothing about
+      # a machine that has neither.
+      - name: Import the extension module
+        run: python -c "import cspy_tw; print(cspy_tw.__version__)"
+
+      - name: Run the Python tests
+        run: python .github/scripts/run_tests.py
+
   cpp:
     name: Build and run the C++ tests
     runs-on: ubuntu-24.04
@@ -65,7 +113,17 @@ jobs:
       - name: Run the tests
         run: ctest --test-dir build --output-on-failure
 
-# Two things this workflow deliberately does not do.
+# Three things this workflow deliberately does not do.
+#
+# The Windows job does not prove that a Windows user can build this project.
+# The windows-2022 image arrives with Visual Studio 2022, CMake, Ninja, SWIG and
+# Git already installed; a machine that has only Python has none of them. The
+# build backend fetches CMake, Ninja and SWIG from the Python Package Index, so
+# the one prerequisite that job cannot speak for is the C++ compiler, which on
+# Windows means the Visual Studio Build Tools. A green run here says the source
+# compiles and the tests pass on Windows. It does not say that
+# "pip install git+https://..." succeeds on a machine without a compiler, and it
+# cannot: that has to be tried on such a machine.
 #
 # It does not check the Dotnet binding or build the documentation. Upstream had
 # a job for each; this fork distributes a Python package, has no Dotnet release

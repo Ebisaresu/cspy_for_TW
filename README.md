@@ -42,11 +42,12 @@ A collection of algorithms for the (resource) Constrained Shortest Path (CSP) pr
 > import name of this fork.
 >
 > These additions are **not on PyPI**: `pip install cspy` installs the upstream
-> package and does not contain them. This fork ships as a wheel attached to a
-> [GitHub release](https://github.com/Ebisaresu/cspy_for_TW/releases), and can
-> also be installed straight from its repository address or built from source;
-> see [Installing](#installing). The badges above are the upstream repository's,
-> and do not reflect the state of this fork.
+> package and does not contain them. This fork is meant to ship as a wheel
+> attached to a [GitHub release](https://github.com/Ebisaresu/cspy_for_TW/releases),
+> but **no release has been cut yet**, so today the only ways in are its
+> repository address and a source build; see [Installing](#installing). The
+> badges above are the upstream repository's, and do not reflect the state of
+> this fork.
 
 Documentation [here](https://torressa.github.io/cspy/).
 
@@ -228,9 +229,16 @@ the three routes below instead.
 
 |     | Route | What the machine needs | When to use it |
 |:----|:------|:-----------------------|:---------------|
-| (a) | [A prebuilt wheel](#a-a-prebuilt-wheel-from-the-releases-page) | `pip`, nothing else | Normal use |
-| (b) | [Installing from the repository address](#b-installing-directly-from-the-repository) | A C++ compiler | No wheel matches your machine |
+| (a) | [A prebuilt wheel](#a-a-prebuilt-wheel-from-the-releases-page) | `pip`, nothing else | Normal use — **but there is no release yet** |
+| (b) | [Installing from the repository address](#b-installing-directly-from-the-repository) | A C++ compiler | No wheel matches your machine, or there is none |
 | (c) | [A source build](#c-a-source-build) | CMake, SWIG, a C++ compiler | Working on the C++ side |
+
+**As of this writing the releases page is empty**, so route (a) is not available
+to anyone yet and everybody takes route (b) or (c). The workflow that produces
+those wheels is written but has never run: no tag has been pushed and no
+continuous integration run has built a wheel on any platform. Read (a) as a
+description of what a release is intended to contain, not as something that has
+been observed to work.
 
 All three install the same thing under the same names: the distribution is
 `cspy-tw` and the importable package is `cspy_tw`. Both names differ from the
@@ -244,16 +252,26 @@ other's objects.
 
 #### (a) A prebuilt wheel from the releases page
 
+> **Nothing to download yet.** No version of this fork has been tagged, so the
+> [releases page](https://github.com/Ebisaresu/cspy_for_TW/releases) holds no
+> wheels. Take route (b) below. The rest of this section describes what a
+> release will contain once one is cut.
+
 A wheel is a prebuilt binary: it already contains the compiled C++ core, so
-nothing is compiled on your machine and no build tools are needed. The
-[releases page](https://github.com/Ebisaresu/cspy_for_TW/releases) carries one
-wheel per combination below.
+nothing is compiled on your machine and no build tools are needed. A release
+carries one wheel per combination below.
 
 | Operating system | Architecture | Interpreter |
 |:-----------------|:-------------|:------------|
 | Linux | x86-64, AArch64 | CPython 3.9 to 3.13 |
 | macOS 11 and later | Apple silicon, Intel | CPython 3.9 to 3.13 |
 | Windows | x86-64 | CPython 3.9 to 3.13 |
+
+Windows on ARM is **not** in that table and no wheel is built for it: the build
+runs on an x86-64 Windows runner and is told to build for `AMD64` and nothing
+else, so every Windows wheel is tagged `win_amd64`. A native ARM64 CPython
+refuses such a wheel as "not a supported wheel on this platform" and has to take
+route (b). Nobody has tried this fork on Windows on ARM, by either route.
 
 Only CPython is covered; PyPy and free-threaded builds are not. Copy the address
 of the wheel whose interpreter version and platform match yours, and hand it to
@@ -283,7 +301,7 @@ python3 -m pip install git+https://github.com/Ebisaresu/cspy_for_TW.git
 
 This compiles the C++ core on your machine, so a **C++ compiler** has to be
 present: the Xcode command line tools on macOS, `build-essential` or the
-distribution's equivalent on Linux, the Visual Studio build tools on Windows.
+distribution's equivalent on Linux, the Visual Studio Build Tools on Windows.
 Everything else the build needs — CMake, Ninja and SWIG — is declared as a build
 dependency in [`pyproject.toml`](pyproject.toml) and is fetched from the Python
 Package Index into a temporary environment. Nothing of that is added to the
@@ -293,10 +311,33 @@ configuring, CMake clones [LEMON](https://github.com/MultiFlow/LEMON) and
 [spdlog](https://github.com/gabime/spdlog), so **git** has to be on the machine
 as well, and the network has to reach more than the package index.
 
+**On Windows**, "a C++ compiler" means the Microsoft one, and a machine that has
+only Python does not have it. Install
+[Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/)
+— the free installer, no Visual Studio subscription involved — and tick the
+**Desktop development with C++** workload; the full Visual Studio Community
+edition with the same workload works just as well if you already have it. Then
+run the `pip install` command above from a shell where `git` is on `PATH`; the
+Git for Windows installer puts it there. CMake, Ninja and SWIG do **not** have
+to be installed separately on Windows any more than anywhere else: they come
+from the Python Package Index. A configure step that ends in CMake reporting
+that no `CMAKE_CXX_COMPILER` could be found is the symptom of the workload being
+absent.
+
+Continuous integration builds this project on Windows on every pull request, so
+the source is known to compile there. That says nothing about how it behaves on
+a machine set up differently from a GitHub runner: the runner image arrives with
+Visual Studio, CMake, Ninja, SWIG and Git already installed, and a green run
+therefore cannot show that the build tools listed above are genuinely the only
+prerequisites. Treat the first install on a fresh Windows machine as something
+to be checked rather than assumed, and please report what happens.
+
 The command took about half a minute on an Apple silicon laptop; on a slower
 machine, or one where CMake and Ninja have to be downloaded first, expect a few
-minutes. A particular revision can be pinned by appending it to the address, for
-example `git+https://github.com/Ebisaresu/cspy_for_TW.git@v1.1.0`.
+minutes. No timing has been measured on Windows. A particular
+revision can be pinned by appending it to the address, for example
+`git+https://github.com/Ebisaresu/cspy_for_TW.git@v1.1.0` — but note that no
+such tag exists on this fork yet, so pin a commit hash instead.
 
 #### (c) A source build
 
@@ -630,6 +671,9 @@ python3 -m pip install https://github.com/Ebisaresu/cspy_for_TW/releases/downloa
 python3 -m pip install git+https://github.com/Ebisaresu/cspy_for_TW.git
 cmake -S . -Bbuild -DBUILD_PYTHON=ON && cmake --build build && python3 -m pip install build/python/dist/cspy_tw-*.whl
 ```
+
+The first of these does not work today: no version has been tagged, so the
+releases page carries no wheels. Use the second.
 
 Only the third of these needs [CMake](https://cmake.org/download/), a standard
 C++ toolchain and [SWIG](https://www.swig.org/) to be installed on the machine;
@@ -1040,7 +1084,8 @@ After that feel free to send a pull request.
 
 ### Continuous integration and releases (this fork)
 
-Two workflows, and neither of them runs on a push to a branch.
+Three workflows. Only the last of them runs on a push to a branch, and it
+publishes nothing.
 
 **[`ci.yml`](.github/workflows/ci.yml)** runs on every pull request, and when
 started by hand from the Actions tab. It builds the wheel through the build
@@ -1050,8 +1095,21 @@ it, and runs the Python test suite through
 [`.github/scripts/run_tests.py`](.github/scripts/run_tests.py). That script
 deselects, by name, the four tests that fail because of the pre-existing
 PSOLGENT bug, and fails if any of those four names ever stops existing, so the
-exclusion cannot outlive the bug. A second job rejects any workflow that would
-publish to a package index.
+exclusion cannot outlive the bug. That happens twice, on Ubuntu and on Windows,
+because the mistakes Windows catches are the ones no other platform catches: an
+identifier that collides with a macro in `<windows.h>`, a header the Microsoft
+compiler insists on, a path assembled with a forward slash. A third job builds
+and runs the C++ test suite. Rejecting any workflow
+that could publish to a package index is a separate workflow,
+[`no-publishing.yml`](.github/workflows/no-publishing.yml), because that check
+needs a push trigger and `ci.yml` deliberately has none.
+
+What the Windows job cannot show is that a Windows *user* can build this
+project. The `windows-2022` runner image arrives with Visual Studio 2022, CMake,
+Ninja, SWIG and Git already installed, so a green run proves the source compiles
+and the tests pass, not that the prerequisites listed under
+[route (b)](#b-installing-directly-from-the-repository) are complete. Only an
+install on a machine that has none of those can show that.
 
 **[`wheels.yml`](.github/workflows/wheels.yml)** builds the wheels that go on
 the releases page, using
@@ -1082,19 +1140,41 @@ There are exactly two ways to start it:
   bump produces wheels carrying the previous version number.
 
 - **Run it by hand** from the Actions tab, choosing "Wheels" and pressing "Run
-  workflow". Two inputs, both optional:
+  workflow". Three inputs, all optional:
   - *build-selector* — a cibuildwheel build selector. Empty builds CPython 3.9
     to 3.13; `cp313-*` builds one interpreter, which is the quick way to check a
     change to the build without spending half an hour.
+  - *platforms* — which of the five build legs to run. `all` is the default and
+    is what a tag push always does; `windows`, `linux` and `macos` narrow it to
+    one operating system, and `windows-amd64`, `linux-x86_64`,
+    `linux-aarch64`, `macos-arm64` and `macos-x86_64` to a single leg. Combined
+    with `cp313-*` in the selector this turns "does the Windows wheel still
+    build and import" into one runner and a few minutes instead of five runners
+    and half an hour.
   - *attach-to-release* — the tag of a release to attach the wheels to. **Leave
     it empty** and the wheels stay as build artifacts of the run and no release
-    is touched at all.
+    is touched at all. Narrowing *platforms* and naming a release at the same
+    time attaches only the wheels that were built, which is useful for
+    replacing one platform's wheels and a trap if a complete set was intended;
+    nothing checks that the set is complete.
+
+Windows wheels get one step the others do not need. The extension module is
+built by the Microsoft compiler and imports `MSVCP140.dll` from the Visual C++
+runtime, which is not part of Windows and is not shipped by CPython, so a wheel
+that merely contained the module would fail to import on a machine without the
+Visual C++ redistributable installed. `[tool.cibuildwheel.windows]` in
+[`pyproject.toml`](pyproject.toml) has `delvewheel` copy that library into the
+wheel, the same job `auditwheel` and `delocate` do on Linux and macOS. The test
+run that follows cannot confirm this worked: the runner has Visual Studio on it
+and therefore has the runtime, so an unrepaired wheel would import there too.
+Reading the list of files inside a built wheel is what shows whether the library
+came along; a machine without the redistributable is what proves it.
 
 Nothing in either workflow uploads to PyPI, to NuGet, or to any other package
 index; the sole distribution channel of this fork is a GitHub release. The
-upstream workflows that did publish were deleted, and the
-`no-package-index-publishing` job of `ci.yml` fails the build if a step that
-could publish reappears.
+upstream workflows that did publish were deleted, and
+[`no-publishing.yml`](.github/workflows/no-publishing.yml) fails the build if a
+step that could publish reappears.
 
 ### Seeking Support
 

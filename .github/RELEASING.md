@@ -34,23 +34,40 @@ still publish.
 
 ## Before the first tagged release
 
-No wheel build has run in continuous integration yet. `ci.yml` exercises Linux
-and CPython 3.13 only; the macOS, Linux aarch64 and Windows legs of `wheels.yml`
-build for the first time when a tag is pushed. The package now contains a single
-compiled file with the C++ core linked into it, so `auditwheel` and `delocate`
-have nothing to relocate and the shipped layout is the one that was built, but
-that has only been seen on macOS arm64. Do a dry run first:
+No leg of `wheels.yml` has ever run: every one of the five builds for the first
+time when a tag is pushed, or when the workflow is started by hand. `ci.yml`
+covers less than it looks like it does -- Linux and Windows, CPython 3.13, one
+architecture each, and through `pip` rather than through cibuildwheel.
+The package contains a single compiled file with the C++ core linked into it, so
+`auditwheel` and `delocate` have nothing to relocate. `delvewheel` on Windows
+does have something to do: the extension imports `MSVCP140.dll` from the Visual
+C++ runtime, which is not part of Windows, so the Windows wheel is the one wheel
+whose shipped layout is not the layout that was built. Do a dry run first:
 
-1. Actions -> Wheels -> Run workflow. Set **build-selector** to `cp313-*` and
-   leave **attach-to-release** empty. Nothing touches a release in this mode;
-   the wheels stay as build artifacts.
+1. Actions -> Wheels -> Run workflow. Set **build-selector** to `cp313-*`, leave
+   **platforms** at `all`, and leave **attach-to-release** empty. Nothing
+   touches a release in this mode; the wheels stay as build artifacts. To
+   re-check one platform after a fix, set **platforms** to that platform
+   instead of paying for all five again.
 2. Download all five artifacts. For each one, in a throwaway virtual
    environment: install it, `import cspy_tw`, run
    `python .github/scripts/run_tests.py`, and check that the package carries its
    own compiled code and asks the operating system for nothing beyond the C++
    runtime (`otool -L` on macOS, `ldd` on Linux, `dumpbin /dependents` on
    Windows).
-3. Only then push the version tag.
+3. For the Windows wheel, do two more things. Unzip it and confirm it contains
+   a vendored copy of the Visual C++ runtime. `delvewheel` renames what it
+   vendors, so the entry reads `msvcp140-<hash>.dll` rather than
+   `MSVCP140.dll`; match the stem case-insensitively rather than the whole
+   name. `delvewheel` puts vendored libraries in a top-level
+   `cspy_tw.libs` directory, beside the `cspy_tw` package rather than beside the
+   extension module inside it, and patches the package's `__init__.py` to add
+   that directory to the search path at import time. A wheel without it depends
+   on the user having the Visual C++ redistributable installed. Then install the
+   wheel on a Windows machine that has never had Visual Studio on it, and import
+   it. Neither a GitHub runner nor a developer machine can stand in for that
+   second check, because both have the runtime already.
+4. Only then push the version tag.
 
 ## Cutting a release
 

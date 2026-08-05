@@ -21,9 +21,9 @@ void detectNegativeCostCycle(DiGraph* graph_ptr) {
 
   // Update negative_cost_cycle_present member
   if (path.empty())
-    graph_ptr->negative_cost_cycle_present = FALSE;
+    graph_ptr->negative_cost_cycle_present = NegativeCostCyclePresent::ABSENT;
   else
-    graph_ptr->negative_cost_cycle_present = TRUE;
+    graph_ptr->negative_cost_cycle_present = NegativeCostCyclePresent::PRESENT;
 }
 
 // TODO Use explicit types when calling BF to avoid error on MACOS

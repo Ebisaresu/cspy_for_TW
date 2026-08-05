@@ -9,7 +9,7 @@ name: Wheels
 # Nothing here uploads to PyPI, to NuGet, or to any other package index. The
 # only place a wheel is published is a GitHub release, and a release that does
 # not exist yet is created as a draft, so a human still has to press publish.
-# ci.yml enforces that this stays true.
+# no-publishing.yml enforces that this stays true.
 
 on:
   workflow_dispatch:
@@ -21,6 +21,24 @@ on:
           something like "cp313-*" for a quick check.
         required: false
         default: ""
+      platforms:
+        description: >-
+          Which platforms to build for. "all" is every leg, which is what a
+          version tag always gets; the narrower choices are for checking one
+          platform without paying for the other four.
+        required: false
+        default: all
+        type: choice
+        options:
+          - all
+          - linux
+          - macos
+          - windows
+          - linux-x86_64
+          - linux-aarch64
+          - macos-arm64
+          - macos-x86_64
+          - windows-amd64
       attach-to-release:
         description: >-
           Tag of the release the wheels should be attached to. Leave empty to
@@ -46,6 +64,8 @@ jobs:
   configuration:
     name: Check the build configuration
     runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.legs.outputs.matrix }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -56,6 +76,45 @@ jobs:
       - name: Check pyproject.toml
         run: python .github/scripts/check_build_configuration.py
 
+      # The build matrix is decided here rather than written out under
+      # strategy.matrix, because the platforms input has to be able to narrow
+      # it and GitHub Actions offers no way to filter a literal include list.
+      # The list below is the whole set of legs; the build job consumes
+      # whatever survives the filter.
+      #
+      # The "platform" field is the only addition to what the matrix used to
+      # carry: it is what the coarse choices (linux, macos, windows) match on,
+      # while the fine ones match the leg name.
+      - name: Decide which platforms to build for
+        id: legs
+        env:
+          # Empty outside workflow_dispatch, which is what a tag push is, and a
+          # tag push always builds everything.
+          SELECTION: ${{ inputs.platforms || 'all' }}
+        run: |
+          set -euo pipefail
+          legs='[
+            {"name": "linux-x86_64",  "runs-on": "ubuntu-24.04",     "archs": "x86_64",  "platform": "linux"},
+            {"name": "linux-aarch64", "runs-on": "ubuntu-24.04-arm", "archs": "aarch64", "platform": "linux"},
+            {"name": "macos-arm64",   "runs-on": "macos-15",         "archs": "arm64",   "platform": "macos"},
+            {"name": "macos-x86_64",  "runs-on": "macos-15-intel",   "archs": "x86_64",  "platform": "macos"},
+            {"name": "windows-amd64", "runs-on": "windows-2022",     "archs": "AMD64",   "platform": "windows"}
+          ]'
+          if [ "$SELECTION" = "all" ]; then
+            selected=$(printf '%s' "$legs" | jq -c '.')
+          else
+            selected=$(printf '%s' "$legs" \
+              | jq -c --arg s "$SELECTION" '[.[] | select(.platform == $s or .name == $s)]')
+          fi
+          if [ "$(printf '%s' "$selected" | jq 'length')" -eq 0 ]; then
+            echo "The platforms input '$SELECTION' matches no build leg." >&2
+            echo "Either the choice list and the leg list above disagree," >&2
+            echo "or a leg was renamed without renaming its choice." >&2
+            exit 1
+          fi
+          echo "Building: $(printf '%s' "$selected" | jq -r '[.[].name] | join(", ")')"
+          printf 'matrix=%s\n' "$(printf '%s' "$selected" | jq -c '{include: .}')" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build the wheels for ${{ matrix.name }}
     needs: configuration
@@ -63,23 +122,7 @@ jobs:
     strategy:
       # One broken platform should not hide working wheels for the others.
       fail-fast: false
-      matrix:
-        include:
-          - name: linux-x86_64
-            runs-on: ubuntu-24.04
-            archs: x86_64
-          - name: linux-aarch64
-            runs-on: ubuntu-24.04-arm
-            archs: aarch64
-          - name: macos-arm64
-            runs-on: macos-15
-            archs: arm64
-          - name: macos-x86_64
-            runs-on: macos-15-intel
-            archs: x86_64
-          - name: windows-amd64
-            runs-on: windows-2022
-            archs: AMD64
+      matrix: ${{ fromJSON(needs.configuration.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v7
 
@@ -128,6 +171,13 @@ jobs:
     # plain manual run leaves the wheels as build artifacts and stops here.
     # The event is named explicitly so that starting this workflow by hand
     # from a tag does not count as the first case.
+    #
+    # A manual run that narrows the platforms input and also names a release
+    # attaches only the wheels it built. That is on purpose -- rebuilding one
+    # platform's wheels and putting them back is a reasonable thing to want --
+    # but it means a release can end up holding fewer wheels than the table in
+    # README.md promises. Nothing checks the set is complete; a tag push, which
+    # always builds every leg, is the way to get a complete set.
     if: >-
       (github.event_name == 'push'
         && startsWith(github.ref, 'refs/tags/v'))

@@ -140,3 +140,46 @@ test-command = "python {project}/.github/scripts/run_tests.py"
 # wheel, because CMake initialises CMAKE_OSX_DEPLOYMENT_TARGET from this
 # variable.
 MACOSX_DEPLOYMENT_TARGET = "11.0"
+
+[tool.cibuildwheel.windows]
+# Written out rather than left to the default, because on Windows the default
+# is the difference between a wheel that imports and one that does not, and it
+# has not always been the same default.
+#
+# The extension module is built by the Microsoft compiler, which links it
+# against the Visual C++ runtime. The upstream project's published win_amd64
+# extension imports MSVCP140.dll, and this fork compiles the same sources the
+# same way, so the same dependency is expected here; it has not been observed
+# directly, because no Windows build of this fork has run yet.
+# That library is not part of Windows and is not shipped by CPython.
+# It arrives with the Visual C++ redistributable, which a developer machine has
+# because Visual Studio installed it and a plain machine may well not. Without
+# it the wheel installs without complaint and then fails on the first import,
+# with "ImportError: DLL load failed while importing _pyBiDirectionalCpp: The
+# specified module could not be found" -- a message that names the extension and
+# not the library actually missing.
+#
+# delvewheel is the Windows counterpart of auditwheel and delocate: it reads
+# the import table of the extension, copies the libraries it needs into the
+# wheel, and patches the module to load them from there. MSVCP140.dll is not on
+# its list of libraries to leave alone -- that list holds what Windows itself
+# provides, msvcrt.dll and msvcp60.dll among them, not the redistributable --
+# so it gets copied in and the wheel stops depending on the user having
+# installed anything.
+#
+# The command below is character for character the default of cibuildwheel 4.1,
+# the version .github/workflows/wheels.yml pins. Writing it out changes nothing
+# about what runs today; it makes the repair a decision this file records rather
+# than one inherited from whichever cibuildwheel is installed. Older
+# cibuildwheel had no Windows repair at all, so a downgrade used to remove it in
+# silence, and a wheel that imports on the machine that built it would ship
+# broken to everyone else.
+#
+# before-build is the other half of not depending on the version. cibuildwheel
+# 4.x installs delvewheel into the build environment itself, under a version
+# constraint of its own, and "pip install" without --upgrade leaves an already
+# satisfied requirement alone; so on 4.x this line does nothing. On a version
+# that does not install delvewheel, it is what keeps the command above from
+# failing for want of the program it names.
+before-build = "pip install delvewheel"
+repair-wheel-command = "delvewheel repair -w {dest_dir} -v {wheel}"

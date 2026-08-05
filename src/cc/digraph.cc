@@ -12,7 +12,7 @@ DiGraph::DiGraph(
     : number_vertices(num_nodes_in),
       number_edges(num_arcs_in),
       lemon_graph_ptr(std::make_unique<LemonGraph>()),
-      negative_cost_cycle_present(FALSE),
+      negative_cost_cycle_present(NegativeCostCyclePresent::ABSENT),
       weight_map_ptr(
           std::make_unique<LemonGraph::ArcMap<double>>(*lemon_graph_ptr)),
       res_map_ptr(std::make_unique<LemonGraph::ArcMap<std::vector<double>>>(
@@ -56,7 +56,7 @@ void DiGraph::addEdge(
   (*weight_map_ptr)[arc]      = weight;
   (*res_map_ptr)[arc]         = resource_consumption;
   if (weight < 0)
-    negative_cost_cycle_present = UNKNOWN;
+    negative_cost_cycle_present = NegativeCostCyclePresent::UNKNOWN;
   all_resources_positive = std::all_of(
       resource_consumption.cbegin(),
       resource_consumption.cend(),

@@ -197,7 +197,8 @@ void BiDirectional::runPreprocessing() {
   // reasources have positive values, a callback is not registered and minimum
   // resources are not present.
   detectNegativeCostCycle(graph_ptr_.get());
-  if (graph_ptr_->negative_cost_cycle_present == FALSE &&
+  if (graph_ptr_->negative_cost_cycle_present ==
+          NegativeCostCyclePresent::ABSENT &&
       graph_ptr_->all_resources_positive &&
       params_ptr_->ref_callback == nullptr &&
       std::all_of(
