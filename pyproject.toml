@@ -113,12 +113,20 @@ regex = '(?m)^\s*VERSION\s+(?P<value>[0-9]+(?:\.[0-9]+)*)\s*$'
 # the Python Package Index on PATH for find_package(SWIG).
 build-frontend = "build"
 build-verbosity = 1
-# PyPy: the SWIG extension is a CPython C extension and is not worth building
-# for PyPy. musllinux: Alpine is not a target audience for this fork.
-# Free threaded builds: the SWIG wrapper does not declare free threading
-# support, so those wheels would only run with the global interpreter lock
-# switched back on.
-skip = ["pp*", "*-musllinux_*", "*t-*"]
+# musllinux: Alpine is not a target audience for this fork, and unlike the two
+# below it is built by default, so it has to be skipped explicitly.
+#
+# PyPy and free threaded builds are not listed here. Neither is built unless it
+# is turned on through the "enable" option, which this project leaves empty, and
+# CIBW_BUILD in .github/workflows/wheels.yml names only the ordinary CPython
+# versions in any case. Skipping something that was never selected makes
+# cibuildwheel warn:
+#   Invalid skip selector: 'pp*'. This selector matches a group that wasn't
+#   enabled.
+# Should either group ever be enabled, note that the SWIG extension is a CPython
+# C extension, and that the wrapper does not declare free threading support, so
+# such wheels would only run with the global interpreter lock switched back on.
+skip = ["*-musllinux_*"]
 # The whole test suite runs against every wheel that is built. cibuildwheel runs
 # this from outside the source tree against the installed and repaired wheel,
 # which is what makes it worth doing: it catches a bundled library the loader
