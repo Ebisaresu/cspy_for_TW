@@ -22,9 +22,25 @@ if(UNIX AND NOT APPLE)
   list(APPEND CMAKE_SWIG_FLAGS "-DSWIGWORDSIZE64")
 endif()
 
-# Find Python using env variable from github workflows
-find_package(Python3 ${pythonVersion} REQUIRED COMPONENTS Interpreter
-                                                          Development)
+# Find Python using env variable from github workflows.
+#
+# Development.Module asks for what building an extension module needs: the
+# headers, and on Windows the import library. Development asks for that and for
+# Development.Embed as well, which needs libpython itself, for embedding the
+# interpreter in another program. This project never embeds anything, and the
+# manylinux images do not ship libpython, so requiring it failed the Linux
+# wheel build outright:
+#   Could NOT find Python3 (missing: Python3_LIBRARIES Development
+#   Development.Embed) (found version "3.9.25")
+# Development.Module was added in CMake 3.18, and this project still declares
+# 3.14 as its minimum, hence the branch.
+if(CMAKE_VERSION VERSION_LESS 3.18)
+  find_package(Python3 ${pythonVersion} REQUIRED COMPONENTS Interpreter
+                                                            Development)
+else()
+  find_package(Python3 ${pythonVersion} REQUIRED COMPONENTS Interpreter
+                                                            Development.Module)
+endif()
 
 if(Python3_VERSION VERSION_GREATER_EQUAL 3)
   list(APPEND CMAKE_SWIG_FLAGS "-py3;-DPY3")
