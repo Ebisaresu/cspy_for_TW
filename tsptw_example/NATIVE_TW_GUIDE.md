@@ -2010,19 +2010,50 @@ the search computes.
 ## Appendix B. Rebuild procedure
 
 After changing the C++ side (`src/cc/`), rebuild the wheel and reinstall it
-into the venv.
+into the venv. Two routes lead there. They differ in what they ask of the
+machine and in how much they recompile, not in what they produce.
+
+**Route 1, CMake directly.** This is the loop to use while editing C++: the
+build tree is kept, so only what changed is recompiled.
 
 ```console
 $ cd <repository root>
 $ cmake -S . -Bbuild -DBUILD_PYTHON=ON     # first time only (no-op if already configured)
-$ cmake --build build -j2                  # incremental build (keep -j2 on M1 8GB)
-$ .venv/bin/pip install --force-reinstall \
-    build/python/dist/cspy_tw-1.1.0-cp313-cp313-macosx_26_0_arm64.whl
+$ cmake --build build -j2                  # incremental build (keep -j2 on a laptop with 8 GB)
+$ .venv/bin/pip install --force-reinstall build/python/dist/cspy_tw-*.whl
 ```
 
 The build automatically runs SWIG wrapper generation → C++ compilation →
-`setup.py bdist_wheel`, producing the wheel under `build/python/dist/`.
-Verify it with the bundled tests (actual output):
+`setup.py bdist_wheel`, producing the wheel under `build/python/dist/`. Its
+file name carries the version, the interpreter tag and the platform tag of the
+machine that built it (`cspy_tw-1.1.0-cp313-cp313-<platform>.whl`), hence the
+glob. This route uses the CMake, SWIG and C++ compiler installed on the
+machine, and installs `setuptools` and `wheel` into the active Python
+environment at configure time if they are missing.
+
+**Route 2, through the build backend.** This is the path a user takes with
+`pip install git+https://github.com/Ebisaresu/cspy_for_TW.git`, and the one the
+wheels attached to a GitHub release are built through. It is worth running
+before tagging a version, because it is the path that can break without route 1
+noticing:
+
+```console
+$ cd <repository root>
+$ CMAKE_BUILD_PARALLEL_LEVEL=2 .venv/bin/pip install --force-reinstall .
+```
+
+[scikit-build-core](https://scikit-build-core.readthedocs.io/), declared in
+`pyproject.toml` at the repository root, configures and builds the same
+`CMakeLists.txt` and then packages whatever the CMake install rules stage. It
+keeps its own build tree under `build/<wheel tag>/`, one per interpreter, and
+does not reuse the `build/` tree of route 1, so its first run compiles
+everything from scratch. `CMAKE_BUILD_PARALLEL_LEVEL` is how the `-j2` of route
+1 is expressed here. CMake, Ninja and SWIG are taken from the Python Package
+Index instead of from the machine, which is why route 2 is the one to trust
+when the question is whether a user with only a C++ compiler can install this
+fork.
+
+Whichever route was taken, verify with the bundled tests (actual output):
 
 ```console
 $ cd test/python
@@ -2073,6 +2104,20 @@ Note that adding a method to the SWIG interface (as `setRequiredNodes`,
 Section 6, and `getTerminationReason`, Section 7, did) makes a rebuild
 mandatory: a stale wheel left in the venv surfaces as `AttributeError`, not
 as a build error.
+
+Continuous integration runs the same suite through
+`.github/scripts/run_tests.py`, which deselects the four PSOLGENT failures by
+name and fails if any of those names ever stops existing. Running it locally
+reproduces exactly what a pull request checks, and is the quickest way to see
+whether a rebuild left anything broken (actual output, last lines):
+
+```console
+$ .venv/bin/python3 .github/scripts/run_tests.py
+...
+Ran 158 tests in 0.440s
+
+OK (skipped=1)
+```
 
 ## Appendix C. Verification record
 

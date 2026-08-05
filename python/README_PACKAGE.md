@@ -10,9 +10,29 @@ resource extension function callback.
 
 ## Installation
 
+This fork is not published on the Python Package Index, so `pip install
+cspy-tw` will not find it. There are two ways to install it instead.
+
+**From a prebuilt wheel (no build tools needed).** Pick the wheel that matches
+your operating system and Python version from the
+[releases page](https://github.com/Ebisaresu/cspy_for_TW/releases) and install
+it by its address:
+
 ```
-pip install cspy-tw
+pip install https://github.com/Ebisaresu/cspy_for_TW/releases/download/<tag>/<wheel file name>
 ```
+
+**From source.** This compiles the C++ core:
+
+```
+pip install git+https://github.com/Ebisaresu/cspy_for_TW.git
+```
+
+It needs three things on the machine: a C++ compiler, `git`, and reachable
+network access to `github.com`. CMake, Ninja and SWIG are downloaded
+automatically as build dependencies, but the build also clones two C++
+libraries, LEMON and spdlog, while configuring, so it cannot run offline or
+behind a firewall that blocks GitHub. The build takes a few minutes.
 
 ## Usage
 
@@ -25,7 +45,10 @@ from cspy_tw import BiDirectional, REFCallback
 The distribution name (`cspy-tw`) and the import name (`cspy_tw`) both differ
 from the upstream project on purpose, so that this fork and the upstream
 `cspy` can be installed side by side in the same environment without one
-overwriting the other.
+overwriting the other. They can also be imported and used in the same process:
+the compiled core of this fork is linked into its own extension module with its
+C++ symbols hidden, so the two versions cannot be confused for each other by the
+dynamic loader.
 
 ## Relationship to the upstream project
 

@@ -129,24 +129,56 @@ message(STATUS "Build C++ library: ${BUILD_CXX}, LOG_LEVEL= ${LOG_LEVEL}")
 message(STATUS "Build Python: ${BUILD_PYTHON}")
 message(STATUS "Build Dotnet: ${BUILD_DOTNET}")
 
+# Two independently built copies of this code can end up in one Python process:
+# the upstream "cspy" package and this fork, which is importable next to it. If
+# each ships its own shared library, both export the same C++ symbols, and the
+# symbols the compiler emits for inline functions, templates and vtables are
+# weak. The dynamic loader coalesces weak definitions across the whole process,
+# regardless of two level namespaces or of the file names of the libraries, so
+# whichever package is loaded first supplies those definitions for both. The
+# class layouts changed between the two versions, so this ends in a destructor
+# from one version running on an object built by the other: wrong results first,
+# then a heap corruption abort.
+#
+# Linking the core into the extension module and hiding every symbol that is not
+# the module entry point leaves nothing for the loader to coalesce. The Windows
+# build already worked this way; this makes every platform do the same.
+if(BUILD_PYTHON)
+  message(
+    STATUS
+      "Python: linking the C++ core into the extension module with hidden symbol visibility"
+  )
+  set(BUILD_SHARED_LIBS OFF)
+  set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+  set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
+  # A static library that is linked into a shared module has to be position
+  # independent, and LEMON does not ask for that on its own.
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
+
 include(FetchContent)
 set(FETCHCONTENT_QUIET OFF)
 set(LEMON_BUILD_TESTING OFF)
 # Remove shared libs for LEMON
 set(BUILD_SHARED_LIBS_OLD ${BUILD_SHARED_LIBS})
 set(BUILD_SHARED_LIBS OFF)
+# Pinned to a commit rather than to the branch name "multiflow/dev". A branch
+# name is a moving target: two builds of the same release tag would link against
+# whatever that branch pointed at on the day they ran, and a force push upstream
+# would silently change what users receive. Update this deliberately.
 FetchContent_Declare(
   LEMON
   GIT_REPOSITORY "https://github.com/MultiFlow/LEMON.git"
-  GIT_TAG "multiflow/dev")
+  GIT_TAG "c047c06c5452a664bc8c82383dfccbecf1a6a87f")
 FetchContent_MakeAvailable(LEMON)
 set(BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS_OLD})
 
-# Add logger
+# Add logger. Pinned to a commit for the same reason as LEMON above: "v1.x" is
+# a branch, not a release tag.
 FetchContent_Declare(
   spdlog
   GIT_REPOSITORY "https://github.com/gabime/spdlog.git"
-  GIT_TAG "v1.x")
+  GIT_TAG "989d28dd768adef702538634857942db24e1058a")
 FetchContent_MakeAvailable(spdlog)
 
 enable_testing()
@@ -156,9 +188,17 @@ if(WIN32
    AND (BUILD_PYTHON
         OR BUILD_JAVA
         OR BUILD_DOTNET))
-  message(STATUS "Getting SWIG: ...")
-  include(swig)
-  message(STATUS "Getting SWIG: ...DONE")
+  # Prefer a SWIG that is already available, for example the one that the "swig"
+  # package from the Python Package Index puts on PATH inside the isolated build
+  # environment of pip. Only fall back to downloading swigwin when there is
+  # none, because that download overrides SWIG_EXECUTABLE unconditionally and it
+  # goes over plain HTTP.
+  find_program(SWIG_EXECUTABLE NAMES swig)
+  if(NOT SWIG_EXECUTABLE)
+    message(STATUS "Getting SWIG: ...")
+    include(swig)
+    message(STATUS "Getting SWIG: ...DONE")
+  endif()
 endif()
 
 include(python)
@@ -171,10 +211,13 @@ if(NOT (BUILD_PYTHON OR BUILD_DOTNET) AND BUILD_TESTING)
   set(gtest_force_shared_crt
       ON
       CACHE BOOL "" FORCE)
+  # Pinned to a commit for the same reason as LEMON and spdlog above: "main" is
+  # a branch, so the C++ tests would otherwise be built against whatever
+  # googletest happened to be that day.
   FetchContent_Declare(
     googletest
     GIT_REPOSITORY "https://github.com/google/googletest.git"
-    GIT_TAG "main")
+    GIT_TAG "488c47cc68353ac94fda363e501c327e31261906")
   FetchContent_MakeAvailable(googletest)
   add_subdirectory(test/cc/)
 endif()

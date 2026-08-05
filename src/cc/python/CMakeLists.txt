@@ -25,10 +25,20 @@ if(APPLE)
                # entry is kept for backwards compatibility.
                "@loader_path;@loader_path/../.libs;@loader_path/../../${PYTHON_PACKAGE_NAME}/.libs"
     )
+  # "-undefined dynamic_lookup" leaves the CPython symbols to be resolved by the
+  # interpreter that loads this module, which is the standard way to link a
+  # CPython extension on macOS.
+  #
+  # "-flat_namespace" used to be here as well and was removed on purpose. It
+  # turns every symbol reference in this module into a search of the whole
+  # process, so with the upstream "cspy" package also loaded the fork would call
+  # into the upstream library instead of its own and report, for example, a
+  # termination reason of "not_run" after a successful run. Two level namespaces
+  # bind each reference to the library it was linked against.
   set_property(
     TARGET pyBiDirectionalCpp
     APPEND
-    PROPERTY LINK_FLAGS "-flat_namespace -undefined suppress")
+    PROPERTY LINK_FLAGS "-undefined dynamic_lookup")
 elseif(UNIX)
   set_target_properties(
     pyBiDirectionalCpp

@@ -1,0 +1,174 @@
+name: Wheels
+
+# Builds the binary wheels that users install, and attaches them to a GitHub
+# release.
+#
+# This workflow never runs on a push to a branch. It runs when a version tag is
+# pushed and when a human starts it from the Actions tab, and nothing else.
+#
+# Nothing here uploads to PyPI, to NuGet, or to any other package index. The
+# only place a wheel is published is a GitHub release, and a release that does
+# not exist yet is created as a draft, so a human still has to press publish.
+# ci.yml enforces that this stays true.
+
+on:
+  workflow_dispatch:
+    inputs:
+      build-selector:
+        description: >-
+          Which interpreters to build for, as a cibuildwheel build selector.
+          Leave empty for the standard set (CPython 3.9 to 3.13). Narrow it to
+          something like "cp313-*" for a quick check.
+        required: false
+        default: ""
+      attach-to-release:
+        description: >-
+          Tag of the release the wheels should be attached to. Leave empty to
+          keep the wheels as build artifacts and touch no release at all.
+        required: false
+        default: ""
+  push:
+    tags:
+      - "v*"
+
+# Read-only by default. The one job that needs to write does so on its own.
+permissions:
+  contents: read
+
+concurrency:
+  group: wheels-${{ github.ref }}
+  # Not cancelled in progress, unlike ci.yml. A second run started while the
+  # first one is uploading would otherwise cancel it mid flight and leave a
+  # release holding some of the wheels and not the others.
+  cancel-in-progress: false
+
+jobs:
+  configuration:
+    name: Check the build configuration
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      # Half an hour of build time across five runners is a costly way to
+      # discover a one-line mistake in pyproject.toml.
+      - name: Check pyproject.toml
+        run: python .github/scripts/check_build_configuration.py
+
+  build:
+    name: Build the wheels for ${{ matrix.name }}
+    needs: configuration
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      # One broken platform should not hide working wheels for the others.
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            runs-on: ubuntu-24.04
+            archs: x86_64
+          - name: linux-aarch64
+            runs-on: ubuntu-24.04-arm
+            archs: aarch64
+          - name: macos-arm64
+            runs-on: macos-15
+            archs: arm64
+          - name: macos-x86_64
+            runs-on: macos-15-intel
+            archs: x86_64
+          - name: windows-amd64
+            runs-on: windows-2022
+            archs: AMD64
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the wheels
+        uses: pypa/cibuildwheel@v4.1
+        env:
+          # Each runner builds only for the architecture it already is. No
+          # cross compilation and no emulation, both of which turn a build
+          # failure into a puzzle.
+          CIBW_ARCHS: ${{ matrix.archs }}
+
+          # The fallback is what a tag push gets, since the inputs context is
+          # empty outside workflow_dispatch.
+          #
+          # What to skip is left to [tool.cibuildwheel] in pyproject.toml. Only
+          # the interpreter range is decided here, because the workflow_dispatch
+          # input has to be able to narrow it.
+          CIBW_BUILD: ${{ inputs.build-selector || 'cp39-* cp310-* cp311-* cp312-* cp313-*' }}
+
+          # Without this the deployment target follows whichever macOS the
+          # runner happens to run, which would tag the wheels for a version
+          # far newer than anything the code actually needs and lock users out
+          # of older machines for no reason. 11.0 is the oldest target the
+          # arm64 builds can have, so both architectures get the same floor.
+          # [tool.cibuildwheel.macos.environment] in pyproject.toml sets the
+          # same value; the two have to stay equal.
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+
+          # The test command is not set here. It lives in
+          # [tool.cibuildwheel] in pyproject.toml, so that "cibuildwheel"
+          # run by hand tests the wheels the same way this workflow does.
+
+      - name: Upload the wheels as a build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: wheels-${{ matrix.name }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  attach-to-release:
+    name: Attach the wheels to a GitHub release
+    needs: build
+    runs-on: ubuntu-24.04
+    # Two ways in, both of which need a deliberate act: a version tag was
+    # pushed, or a human typed a tag name into the workflow_dispatch input. A
+    # plain manual run leaves the wheels as build artifacts and stops here.
+    # The event is named explicitly so that starting this workflow by hand
+    # from a tag does not count as the first case.
+    if: >-
+      (github.event_name == 'push'
+        && startsWith(github.ref, 'refs/tags/v'))
+      || (github.event_name == 'workflow_dispatch'
+        && inputs.attach-to-release != '')
+    permissions:
+      contents: write
+    steps:
+      - name: Collect the wheels from every build job
+        uses: actions/download-artifact@v8
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: wheelhouse
+
+      - name: List the collected wheels
+        run: ls -l wheelhouse
+
+      - name: Upload the wheels to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.attach-to-release || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # "gh release create" happily creates a tag that does not exist yet,
+          # pointing at the default branch. A typo in the attach-to-release
+          # input would then leave a stray tag and a stray draft release
+          # behind, so require the tag to exist first and say which input is
+          # wrong when it does not.
+          if ! gh api "repos/$GH_REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "There is no tag named '$TAG' in $GH_REPO." >&2
+            echo "Push the tag first, or correct the attach-to-release input." >&2
+            exit 1
+          fi
+          # A release that does not exist yet is created as a draft on
+          # purpose. Nothing becomes publicly visible until a human presses
+          # publish. --target pins it to the existing tag.
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --draft --title "$TAG" \
+              --target "$TAG" \
+              --notes "Wheels built by GitHub Actions."
+          fi
+          gh release upload "$TAG" wheelhouse/*.whl --clobber

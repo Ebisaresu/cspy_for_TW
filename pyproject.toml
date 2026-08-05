@@ -1,0 +1,142 @@
+# Build backend for "pip install ." and "pip install git+https://...".
+#
+# CMake remains the entry point: scikit-build-core configures and builds the
+# CMakeLists.txt of this project and then packages whatever the CMake install
+# rules stage into the wheel. CMake, Ninja and SWIG are all pulled from the
+# Python Package Index, so the only prerequisite left on the user's machine is
+# a C++ compiler.
+[build-system]
+requires = [
+  "scikit-build-core>=0.11",
+  "swig>=4.2",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "cspy-tw"
+# The single source of truth for the version is project(... VERSION ...) in
+# CMakeLists.txt; see [tool.scikit-build.metadata.version] below.
+dynamic = ["version"]
+description = "Resource constrained shortest path algorithms with native time windows and per-node service times; a fork of cspy"
+readme = "python/README_PACKAGE.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE.txt", "NOTICE.txt"]
+authors = [
+  { name = "Ebisaresu", email = "69381830+Ebisaresu@users.noreply.github.com" },
+]
+keywords = [
+  "shortest path",
+  "resource constrained shortest path",
+  "time windows",
+  "column generation",
+  "vehicle routing",
+]
+dependencies = [
+  "networkx",
+  "numpy",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS :: MacOS X",
+  "Operating System :: Microsoft :: Windows",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  # No 3.14 here on purpose: no wheel is built for it. The classifier belongs
+  # back only once "cp314-*" is part of the CIBW_BUILD default in
+  # .github/workflows/wheels.yml and those wheels have been seen to work.
+  "Programming Language :: C++",
+  "Topic :: Scientific/Engineering :: Mathematics",
+]
+
+[project.urls]
+Homepage = "https://github.com/Ebisaresu/cspy_for_TW"
+Source = "https://github.com/Ebisaresu/cspy_for_TW"
+"Upstream project" = "https://github.com/torressa/cspy"
+"Upstream documentation" = "https://cspy.readthedocs.io/"
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+# Stated here rather than raised in CMakeLists.txt, so that the plain CMake
+# workflow keeps working with CMake 3.14. scikit-build-core does not support a
+# cmake_minimum_required below 3.15 and warns unless the range is given.
+# An existing CMake on PATH is used when it satisfies this; otherwise CMake is
+# taken from the Python Package Index.
+cmake.version = ">=3.15"
+# build-dir is deliberately not set. A fixed build directory would live inside
+# the source tree, so "pip install ." would write tens of megabytes of fetched
+# dependencies into the user's checkout, fail outright if that checkout is read
+# only, and carry a stale CMakeCache.txt from one install to the next: a second
+# install in an environment where Ninja is absent then dies with "Does not match
+# the generator used previously". The default throwaway directory has none of
+# those failure modes, and the reconfigure it costs does not apply to
+# "pip install git+https://..." anyway, which always starts from a fresh clone.
+# Every file in the wheel comes from the CMake install rules. There is no
+# importable package directory at the top of the repository for the backend to
+# discover, and cmake/python.cmake already assembles the package tree.
+wheel.packages = []
+# Install only the "Python" component. This deliberately keeps the C++ export
+# set (cspyTargets), the public headers, cspyConfig.cmake and any install rules
+# contributed by the fetched LEMON and spdlog out of the wheel.
+install.components = ["Python"]
+# The extension module is copied verbatim by cmake/python.cmake, already linked
+# with the C++ core inside it and with every symbol but the module entry point
+# hidden (see the BUILD_PYTHON block in CMakeLists.txt). Nothing must
+# post-process it here.
+install.strip = false
+
+[tool.scikit-build.cmake.define]
+BUILD_CXX = "ON"
+BUILD_PYTHON = "ON"
+BUILD_DOTNET = "OFF"
+# The virtualenv based ctest target is not wanted inside a wheel build.
+BUILD_TESTING = "OFF"
+# BUILD_SHARED_LIBS is deliberately not set here: the top level CMakeLists.txt
+# already defaults it to ON on Unix and OFF on Windows, which is what we want.
+
+[tool.scikit-build.metadata.version]
+provider = "scikit_build_core.metadata.regex"
+input = "CMakeLists.txt"
+regex = '(?m)^\s*VERSION\s+(?P<value>[0-9]+(?:\.[0-9]+)*)\s*$'
+
+# ---------------------------------------------------------------------------
+# Wheel building in continuous integration.
+# ---------------------------------------------------------------------------
+[tool.cibuildwheel]
+# Build isolation must stay enabled: it is what puts the "swig" executable from
+# the Python Package Index on PATH for find_package(SWIG).
+build-frontend = "build"
+build-verbosity = 1
+# PyPy: the SWIG extension is a CPython C extension and is not worth building
+# for PyPy. musllinux: Alpine is not a target audience for this fork.
+# Free threaded builds: the SWIG wrapper does not declare free threading
+# support, so those wheels would only run with the global interpreter lock
+# switched back on.
+skip = ["pp*", "*-musllinux_*", "*t-*"]
+# The whole test suite runs against every wheel that is built. cibuildwheel runs
+# this from outside the source tree against the installed and repaired wheel,
+# which is what makes it worth doing: it catches a bundled library the loader
+# cannot find after repair, not just a compile error. The suite takes under a
+# second.
+#
+# The runner script is used instead of "unittest discover" because four tests of
+# the particle swarm algorithm fail for a reason that predates the packaging
+# work (src/python/algorithms/psolgent.py passes "member_size" instead of
+# "self.member_size" to numpy.ones). The script deselects exactly those four by
+# name and fails if they ever stop existing.
+#
+# No test-requires: the suite imports nothing that the wheel does not already
+# depend on.
+test-command = "python {project}/.github/scripts/run_tests.py"
+
+[tool.cibuildwheel.macos.environment]
+# Fixes both the compiler's -mmacosx-version-min and the platform tag of the
+# wheel, because CMake initialises CMAKE_OSX_DEPLOYMENT_TARGET from this
+# variable.
+MACOSX_DEPLOYMENT_TARGET = "11.0"

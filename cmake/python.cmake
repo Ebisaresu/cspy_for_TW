@@ -67,15 +67,36 @@ function(search_python_module MODULE_NAME)
       WARNING
         "Can't find python module \"${MODULE_NAME}\", user install it using pip..."
     )
+    # No --user here: pip refuses it inside a virtual environment, which used to
+    # leave the module missing and made the build fail later on with
+    # "ModuleNotFoundError: No module named 'setuptools'".
     execute_process(
-      COMMAND ${Python3_EXECUTABLE} -m pip install --upgrade --user
-              ${MODULE_NAME} OUTPUT_STRIP_TRAILING_WHITESPACE)
+      COMMAND ${Python3_EXECUTABLE} -m pip install --upgrade ${MODULE_NAME}
+              OUTPUT_STRIP_TRAILING_WHITESPACE)
   endif()
 endfunction()
 
-search_python_module(setuptools)
-search_python_module(wheel)
+# Under scikit-build-core the wheel is produced by the build backend and not by
+# setup.py, so neither setuptools nor wheel is needed at configure time.
+if(NOT SKBUILD)
+  search_python_module(setuptools)
+  search_python_module(wheel)
+endif()
 # search_python_module(virtualenv)
+
+# The shared library is only a separate file when BUILD_SHARED_LIBS is on. The
+# top level CMakeLists.txt turns it off whenever BUILD_PYTHON is on, so normally
+# the core is already linked into the extension module and there is nothing to
+# copy; copying a static library into .libs/ would only put a stray archive
+# inside the wheel. The branch is kept so that a deliberate shared build still
+# produces a working package.
+if(BUILD_SHARED_LIBS)
+  set(COPY_SHARED_LIBRARY_COMMAND
+      COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:BiDirectionalCpp>
+              ${PYTHON_PACKAGE_NAME}/.libs)
+else()
+  unset(COPY_SHARED_LIBRARY_COMMAND)
+endif()
 
 add_custom_target(
   python_package ALL
@@ -107,19 +128,36 @@ add_custom_target(
   COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_PACKAGE_NAME}/.libs
   COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:pyBiDirectionalCpp>
           ${PYTHON_PACKAGE_NAME}/algorithms/
-  # Don't need to copy static lib on Windows
-  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:BiDirectionalCpp>
-          ${PYTHON_PACKAGE_NAME}/.libs
+  ${COPY_SHARED_LIBRARY_COMMAND}
   # copy swig generated python interface file
   COMMAND
     ${CMAKE_COMMAND} -E copy
     ${CMAKE_CURRENT_BINARY_DIR}/python/pyBiDirectionalCpp.py
     ${PYTHON_PACKAGE_NAME}/algorithms/
-  # Build wheel
-  COMMAND ${Python3_EXECUTABLE} setup.py bdist_wheel
   BYPRODUCTS python/${PYTHON_PACKAGE_NAME} python/build python/dist
              python/${PYTHON_PACKAGE_NAME}.egg-info
   WORKING_DIRECTORY python)
+
+# The plain CMake workflow ("cmake --build build") keeps producing a wheel in
+# build/python/dist/. Under scikit-build-core the backend builds the wheel, so
+# this step is skipped there to avoid building it twice.
+if(NOT SKBUILD)
+  add_custom_command(
+    TARGET python_package
+    POST_BUILD
+    COMMAND ${Python3_EXECUTABLE} setup.py bdist_wheel
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/python)
+endif()
+
+# Hand the package tree that python_package has just assembled to
+# scikit-build-core. install(DIRECTORY) copies the files unchanged, so the
+# extension module reaches the wheel exactly as it was linked.
+if(SKBUILD)
+  install(
+    DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/python/${PYTHON_PACKAGE_NAME}/
+    DESTINATION ${SKBUILD_PLATLIB_DIR}/${PYTHON_PACKAGE_NAME}
+    COMPONENT Python)
+endif()
 
 # Test Look for python module virtualenv
 if(BUILD_TESTING)

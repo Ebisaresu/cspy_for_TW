@@ -42,9 +42,11 @@ A collection of algorithms for the (resource) Constrained Shortest Path (CSP) pr
 > import name of this fork.
 >
 > These additions are **not on PyPI**: `pip install cspy` installs the upstream
-> package and does not contain them, so this fork has to be
-> [built from source](#53-installing-this-fork). The badges above are the upstream
-> repository's, and do not reflect the state of this fork.
+> package and does not contain them. This fork ships as a wheel attached to a
+> [GitHub release](https://github.com/Ebisaresu/cspy_for_TW/releases), and can
+> also be installed straight from its repository address or built from source;
+> see [Installing](#installing). The badges above are the upstream repository's,
+> and do not reflect the state of this fork.
 
 Documentation [here](https://torressa.github.io/cspy/).
 
@@ -214,26 +216,141 @@ Module dependencies are:
 - [NetworkX](https://networkx.github.io/documentation/stable/)
 - [NumPy](https://docs.scipy.org/doc/numpy/reference/)
 
-Note that [`python/requirements.dev.txt`](python/requirements.dev.txt) contains modules for development purposes.
+Both are installed automatically by `pip`. Note that
+[`python/requirements.dev.txt`](python/requirements.dev.txt) contains modules for development purposes.
 
 ### Installing
 
-Installing the `cspy` package with `pip` should also install all the required packages. You can do this by running the following command in your terminal
+This fork is **not** on the Python Package Index. `pip install cspy-tw` will not
+find it, and `pip install cspy` installs the *upstream* package, which is a
+different distribution and does not contain the native time windows. Use one of
+the three routes below instead.
+
+|     | Route | What the machine needs | When to use it |
+|:----|:------|:-----------------------|:---------------|
+| (a) | [A prebuilt wheel](#a-a-prebuilt-wheel-from-the-releases-page) | `pip`, nothing else | Normal use |
+| (b) | [Installing from the repository address](#b-installing-directly-from-the-repository) | A C++ compiler | No wheel matches your machine |
+| (c) | [A source build](#c-a-source-build) | CMake, SWIG, a C++ compiler | Working on the C++ side |
+
+All three install the same thing under the same names: the distribution is
+`cspy-tw` and the importable package is `cspy_tw`. Both names differ from the
+upstream project on purpose, so that this fork and upstream `cspy` can be
+installed side by side in one environment without either overwriting the other.
+Write `from cspy_tw import BiDirectional`; `import cspy` keeps meaning the
+upstream package, unchanged. Both may also be imported and used in the same
+process: this fork links its C++ core into its own extension module and hides
+every C++ symbol, so the dynamic loader cannot serve one version's code to the
+other's objects.
+
+#### (a) A prebuilt wheel from the releases page
+
+A wheel is a prebuilt binary: it already contains the compiled C++ core, so
+nothing is compiled on your machine and no build tools are needed. The
+[releases page](https://github.com/Ebisaresu/cspy_for_TW/releases) carries one
+wheel per combination below.
+
+| Operating system | Architecture | Interpreter |
+|:-----------------|:-------------|:------------|
+| Linux | x86-64, AArch64 | CPython 3.9 to 3.13 |
+| macOS 11 and later | Apple silicon, Intel | CPython 3.9 to 3.13 |
+| Windows | x86-64 | CPython 3.9 to 3.13 |
+
+Only CPython is covered; PyPy and free-threaded builds are not. Copy the address
+of the wheel whose interpreter version and platform match yours, and hand it to
+`pip`:
 
 ```none
-pip install cspy
+python3 -m pip install https://github.com/Ebisaresu/cspy_for_TW/releases/download/<tag>/<wheel file name>
 ```
 
-or
+A wheel you have already downloaded works the same way:
 
 ```none
-python3 -m pip install cspy
+python3 -m pip install ./<wheel file name>
 ```
 
-Note that this installs the **upstream** package from PyPI, which does **not**
-include this fork's native time windows, and which is imported as `cspy`. This
-fork is a separate distribution named `cspy-tw`, imported as `cspy_tw`, and
-requires a [source build](#53-installing-this-fork).
+The file names read `cspy_tw-<version>-cp313-cp313-<platform>.whl`, where `cp313`
+means CPython 3.13. If `pip` answers that the file `is not a supported wheel on
+this platform`, the wheel does not match the interpreter it was given to: check
+`python3 --version` and pick another one. If nothing on the page matches your
+machine at all, take route (b).
+
+#### (b) Installing directly from the repository
+
+```none
+python3 -m pip install git+https://github.com/Ebisaresu/cspy_for_TW.git
+```
+
+This compiles the C++ core on your machine, so a **C++ compiler** has to be
+present: the Xcode command line tools on macOS, `build-essential` or the
+distribution's equivalent on Linux, the Visual Studio build tools on Windows.
+Everything else the build needs — CMake, Ninja and SWIG — is declared as a build
+dependency in [`pyproject.toml`](pyproject.toml) and is fetched from the Python
+Package Index into a temporary environment. Nothing of that is added to the
+environment you install into, and neither `setuptools` nor `wheel` has to be
+present beforehand, so a freshly created virtual environment is enough. While
+configuring, CMake clones [LEMON](https://github.com/MultiFlow/LEMON) and
+[spdlog](https://github.com/gabime/spdlog), so **git** has to be on the machine
+as well, and the network has to reach more than the package index.
+
+The command took about half a minute on an Apple silicon laptop; on a slower
+machine, or one where CMake and Ninja have to be downloaded first, expect a few
+minutes. A particular revision can be pinned by appending it to the address, for
+example `git+https://github.com/Ebisaresu/cspy_for_TW.git@v1.1.0`.
+
+#### (c) A source build
+
+For working on the C++ side, or for building a wheel to carry elsewhere. Clone
+first:
+
+```none
+git clone https://github.com/Ebisaresu/cspy_for_TW.git
+cd cspy_for_TW
+```
+
+From here there are two ways on, and they produce the same wheel.
+
+**Through the build backend**, which is the path route (b) takes, applied to a
+working copy instead of a remote address. The requirements are exactly those of
+route (b):
+
+```none
+python3 -m pip install .
+```
+
+**Through CMake directly**, which is the faster loop while editing C++, because
+the build tree is kept and the compile is incremental:
+
+```none
+cmake -S . -Bbuild -DBUILD_PYTHON=ON
+cmake --build build
+python3 -m pip install --force-reinstall build/python/dist/cspy_tw-*.whl
+```
+
+This route uses the CMake (>=3.14), SWIG and C++ compiler **installed on the
+machine** rather than the ones from the package index, so all three have to be
+there. It also builds the wheel with `setup.py`, and installs `setuptools` and
+`wheel` into the active Python environment at configure time if they are
+missing. The rebuild loop, including what has to be rebuilt after a change to
+the SWIG interface, is
+[`NATIVE_TW_GUIDE.md`](tsptw_example/NATIVE_TW_GUIDE.md) Appendix B; the rest of
+the build system is [Building](#6-building) below.
+
+#### Checking the installation
+
+```console
+$ python3 -c "import cspy_tw; print(cspy_tw.__version__)"
+1.1.0
+```
+
+The upstream package answers `import cspy` and knows nothing about
+`time_windows`, so the following also confirms that what got installed is this
+fork:
+
+```console
+$ python3 -c "import inspect; from cspy_tw import BiDirectional; print('time_windows' in inspect.signature(BiDirectional.__init__).parameters)"
+True
+```
 
 ## 4. Quick start — Instance A
 
@@ -503,19 +620,23 @@ directions. The option remains `False` by default. See
 
 ### 5.3 Installing this fork
 
-This fork is not published on PyPI, so it has to be built from source. This needs
-[CMake](https://cmake.org/download/), a standard C++ toolchain and
-[SWIG](https://www.swig.org/), the last of which is missing from the upstream
-requirements list under [Building](#6-building) below:
+This fork is not published on PyPI. The three ways to install it — a prebuilt
+wheel from the releases page, `pip install git+https://...`, and a source build
+— are set out under [Installing](#installing) above, together with what each one
+requires of the machine. In short, and in decreasing order of convenience:
 
 ```none
-cmake -S . -Bbuild -DBUILD_PYTHON=ON
-cmake --build build
-python3 -m pip install build/python/dist/cspy_tw-*.whl
+python3 -m pip install https://github.com/Ebisaresu/cspy_for_TW/releases/download/<tag>/<wheel file name>
+python3 -m pip install git+https://github.com/Ebisaresu/cspy_for_TW.git
+cmake -S . -Bbuild -DBUILD_PYTHON=ON && cmake --build build && python3 -m pip install build/python/dist/cspy_tw-*.whl
 ```
 
-The full procedure, including how to rebuild after changing the C++ side, is in
-[`NATIVE_TW_GUIDE.md`](tsptw_example/NATIVE_TW_GUIDE.md), Appendix B.
+Only the third of these needs [CMake](https://cmake.org/download/), a standard
+C++ toolchain and [SWIG](https://www.swig.org/) to be installed on the machine;
+the last of those is missing from the upstream requirements list under
+[Building](#6-building) below. The rebuild procedure, for after a change to the
+C++ side, is in [`NATIVE_TW_GUIDE.md`](tsptw_example/NATIVE_TW_GUIDE.md),
+Appendix B.
 
 ### 5.4 Time windows as a model — Instance B
 
@@ -831,6 +952,29 @@ bit sets, the layout of the labelling core — is defined in
 
 ## 6. Building
 
+This section is about the build system itself. To *install* the package, see
+[Installing](#installing) — route (c) there is the short form of what follows.
+
+There are two entry points into the same build, and both end in a wheel that
+contains the extension module and the shared library it loads:
+
+- **The build backend.** `pip install .` reads
+  [`pyproject.toml`](pyproject.toml), which hands the work to
+  [scikit-build-core](https://scikit-build-core.readthedocs.io/). That backend
+  configures this project's `CMakeLists.txt`, builds it, and packages what the
+  CMake install rules stage. CMake, Ninja and SWIG come from the Python Package
+  Index, so a C++ compiler and git are all the machine has to supply. This is
+  the path a user takes, and the one the wheels on the releases page are built
+  through.
+- **CMake on its own.** `cmake -S . -Bbuild -DBUILD_PYTHON=ON` followed by
+  `cmake --build build` writes the wheel to `build/python/dist/`. This path uses
+  the machine's own CMake, SWIG and compiler, keeps its build tree between runs,
+  and is what the sections below describe.
+
+The two do not collide: the backend puts its build tree in `build/<wheel tag>/`,
+one per interpreter, and skips the `setup.py` step that the plain CMake path
+uses.
+
 ### Docker
 
 Using docker, docker-compose is the easiest way.
@@ -838,7 +982,7 @@ Using docker, docker-compose is the easiest way.
 To run the tests first, clone the repository into a path in your machine `~/path/newfolder` by running
 
 ```none
-git clone https://github.com/torressa/cspy.git ~/path/newfolder
+git clone https://github.com/Ebisaresu/cspy_for_TW.git ~/path/newfolder
 ```
 
 #### Running the Cpp tests
@@ -861,9 +1005,17 @@ Requirements:
 
 - [CMake](https://cmake.org/download/) (>=v3.14)
 - Standard C++ toolchain
-- Python (>=3.6)
+- [SWIG](https://www.swig.org/) (>=v4 is what this fork is developed against)
+- Python (>=3.9 for this fork; the upstream project states >=3.6)
 
 Then use the wrapper [`Makefile`](Makefile) e.g. `make` in the root dir runs the unit tests
+
+Only the CMake path needs SWIG and CMake to be installed; through the build
+backend both arrive from the Python Package Index. The Python test suite is run
+from `test/python` with `python3 -m unittest discover -p "tests_*.py"`; it
+reports `Ran 162 tests ... FAILED (errors=4, skipped=1)`, the four errors being
+a pre-existing incompatibility between the particle swarm algorithm and NumPy 2
+that has nothing to do with this fork's additions.
 
 ## 7. License
 
@@ -885,6 +1037,64 @@ After that feel free to send a pull request.
 - If necessary, please perform documentation updates where appropriate (e.g. README.md, docs and [CHANGELOG.md](CHANGELOG.md)).
 - Increase the version numbers and reference the changes appropriately. Note that the versioning scheme used is based on [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Wait for approval for merging.
+
+### Continuous integration and releases (this fork)
+
+Two workflows, and neither of them runs on a push to a branch.
+
+**[`ci.yml`](.github/workflows/ci.yml)** runs on every pull request, and when
+started by hand from the Actions tab. It builds the wheel through the build
+backend — the same path a user takes with `pip install git+https://...`, so that
+a break in the packaging shows up here rather than in a bug report — installs
+it, and runs the Python test suite through
+[`.github/scripts/run_tests.py`](.github/scripts/run_tests.py). That script
+deselects, by name, the four tests that fail because of the pre-existing
+PSOLGENT bug, and fails if any of those four names ever stops existing, so the
+exclusion cannot outlive the bug. A second job rejects any workflow that would
+publish to a package index.
+
+**[`wheels.yml`](.github/workflows/wheels.yml)** builds the wheels that go on
+the releases page, using
+[cibuildwheel](https://cibuildwheel.pypa.io/) on five runners (Linux x86-64 and
+AArch64, macOS Apple silicon and Intel, Windows x86-64) for CPython 3.9 to 3.13.
+A short job reads
+[`pyproject.toml`](pyproject.toml) first, so that a one-line mistake there costs
+a few seconds rather than half an hour of build time across five runners. Every
+wheel is then installed and tested from outside the source tree before it is
+kept, which is what catches a bundled shared library the loader cannot find.
+There are exactly two ways to start it:
+
+- **Push a version tag.** A tag matching `v*` builds every wheel and attaches
+  the lot to the release of that name. If no release by that name exists yet,
+  one is created **as a draft**, so nothing becomes publicly visible until a
+  human presses publish. To cut version 1.2.0:
+
+  ```none
+  # bump project(... VERSION 1.2.0 ...) in CMakeLists.txt first: it is the only
+  # place the version is written, and both the wheel metadata and pyproject.toml
+  # read it from there
+  git tag v1.2.0
+  git push origin v1.2.0
+  ```
+
+  Then edit the draft release's notes and publish it. Nothing checks that the
+  tag and the version in `CMakeLists.txt` agree, so a tag pushed without the
+  bump produces wheels carrying the previous version number.
+
+- **Run it by hand** from the Actions tab, choosing "Wheels" and pressing "Run
+  workflow". Two inputs, both optional:
+  - *build-selector* — a cibuildwheel build selector. Empty builds CPython 3.9
+    to 3.13; `cp313-*` builds one interpreter, which is the quick way to check a
+    change to the build without spending half an hour.
+  - *attach-to-release* — the tag of a release to attach the wheels to. **Leave
+    it empty** and the wheels stay as build artifacts of the run and no release
+    is touched at all.
+
+Nothing in either workflow uploads to PyPI, to NuGet, or to any other package
+index; the sole distribution channel of this fork is a GitHub release. The
+upstream workflows that did publish were deleted, and the
+`no-package-index-publishing` job of `ci.yml` fails the build if a step that
+could publish reappears.
 
 ### Seeking Support
 

@@ -1,0 +1,45 @@
+name: No publishing
+
+# A tripwire, kept in its own workflow so that it can have a push trigger
+# without dragging the rest of the checks along.
+#
+# The point of a push trigger here: this repository is developed by committing
+# straight to master. If a merge from upstream restores a workflow that
+# publishes to a package index, that restored workflow fires on the very same
+# push that brings it back. A check that only runs on pull requests would never
+# see it. This job is a checkout, a Python and a regular expression scan, so
+# running it on every push costs seconds, not runner minutes.
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: no-publishing-${{ github.ref }}
+  # Not cancelled in progress. It is short, and a cancelled tripwire reports
+  # nothing at all.
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check that nothing under .github can publish to a package index
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      # This fork ships wheels as GitHub release assets and nowhere else. The
+      # workflows that published to the Python Package Index and to NuGet were
+      # deleted; this turns that decision into something a merge cannot quietly
+      # undo. It cannot see repository secrets, deployment environments or a
+      # trusted publisher registered on the index; see .github/RELEASING.md for
+      # the parts that have to be removed by hand.
+      - name: Look for publishing steps
+        run: python .github/scripts/check_no_publishing.py
