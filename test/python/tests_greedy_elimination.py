@@ -3,7 +3,7 @@ from time import time
 from networkx import DiGraph
 from numpy import array
 
-from cspy import GreedyElim
+from cspy_tw import GreedyElim
 
 from utils import TestingBase
 

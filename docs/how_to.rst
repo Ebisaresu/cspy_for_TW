@@ -160,7 +160,7 @@ and the edge that is being considered for an extension of a path ``edge``
 .. code-block:: python
 
         from numpy import array
-        from cspy import REFCallback
+        from cspy_tw import REFCallback
 
         WALKING_SPEED = 3
 
@@ -202,7 +202,7 @@ Using ``cspy``, Jane can obtain a route ``path`` and subject to her constraints 
 
 .. code-block:: python
 
-        from cspy import Tabu, BiDirectional
+        from cspy_tw import Tabu, BiDirectional
 
         n_edges = len(G.edges())  # number of edges in network
         max_res = [n_edges, 5*n_edges, 5, 5, 5]

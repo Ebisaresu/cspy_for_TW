@@ -1,7 +1,7 @@
-cspy.PSOLGENT
-=============
+cspy_tw.PSOLGENT
+================
 
-.. automodule:: cspy.PSOLGENT
+.. automodule:: cspy_tw.PSOLGENT
 	:members:
    	:inherited-members:
 
@@ -22,7 +22,7 @@ Example
 -------
 .. code-block:: python
 
-    >>> from cspy import PSOLGENT
+    >>> from cspy_tw import PSOLGENT
     >>> from networkx import DiGraph
     >>> from numpy import zeros, ones, array
     >>> G = DiGraph(directed=True, n_res=2)

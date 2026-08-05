@@ -46,13 +46,13 @@ and, increased efficiency
    :maxdepth: 1
    :caption: Python API
 
-   python_api/cspy.BiDirectional
-   python_api/cspy.Tabu
-   python_api/cspy.GreedyElim
-   python_api/cspy.GRASP
-   python_api/cspy.PSOLGENT
-   python_api/cspy.preprocess_graph
-   python_api/cspy.check
+   python_api/cspy_tw.BiDirectional
+   python_api/cspy_tw.Tabu
+   python_api/cspy_tw.GreedyElim
+   python_api/cspy_tw.GRASP
+   python_api/cspy_tw.PSOLGENT
+   python_api/cspy_tw.preprocess_graph
+   python_api/cspy_tw.check
 
 .. toctree::
    :maxdepth: 1

@@ -16,7 +16,7 @@ import subprocess
 # sys.path.insert(0, os.path.abspath('..'))
 
 # -- Project information -----------------------------------------------------
-project = 'cspy'
+project = 'cspy-tw'
 copyright = '2020, David Torres Sanchez'
 author = 'David Torres Sanchez'
 

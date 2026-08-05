@@ -39,6 +39,6 @@ done
 
 # Install packages and test
 for PYBIN in /opt/python/*/bin; do
-	"${PYBIN}/pip" install cspy --no-index -f wheelhouse/
+	"${PYBIN}/pip" install cspy-tw --no-index -f wheelhouse/
 	"${PYBIN}/python3" -m unittest discover -s ../../test/python/
 done

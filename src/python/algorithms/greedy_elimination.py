@@ -6,8 +6,8 @@ from numpy import array
 from networkx import NetworkXException, DiGraph
 
 # Local imports
-from cspy.algorithms.path_base import PathBase
-from cspy.checking import check_time_limit_breached
+from .path_base import PathBase
+from ..checking import check_time_limit_breached
 
 log = getLogger(__name__)
 

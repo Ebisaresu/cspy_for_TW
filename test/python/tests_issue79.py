@@ -2,7 +2,7 @@ from numpy import array
 import numpy as np
 from networkx import DiGraph
 
-from cspy import PSOLGENT
+from cspy_tw import PSOLGENT
 
 from utils import TestingBase
 

@@ -1269,7 +1269,7 @@ the tables directly and needs nothing else; the first block above is the
 """Section 3.9.2: window_hard dominance is not sound."""
 import networkx as nx
 import numpy as np
-from cspy import BiDirectional
+from cspy_tw import BiDirectional
 
 ARCS = [("Source", "u1", 1, 0), ("Source", "u2", 2, 0), ("u1", "u2", 1, 0),
         ("u2", "u1", 1, 0), ("u1", "y", 1, 0), ("u2", "y", 1, 0),

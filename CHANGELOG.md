@@ -152,7 +152,7 @@ The algorithm improvements include:
 
 e.g.
 ```python
-from cspy import BiDirectional, REFCallback
+from cspy_tw import BiDirectional, REFCallback
 
 class MyCallback(REFCallback):
 

@@ -19,15 +19,22 @@ if(APPLE)
     pyBiDirectionalCpp
     PROPERTIES SUFFIX ".so"
                INSTALL_RPATH
-               "@loader_path;@loader_path/../../${PROJECT_NAME}/.libs")
+               # The extension module lives in <package>/algorithms/ and the
+               # shared library in <package>/.libs/, so ../.libs is the shortest
+               # path and does not depend on the package name at all. The last
+               # entry is kept for backwards compatibility.
+               "@loader_path;@loader_path/../.libs;@loader_path/../../${PYTHON_PACKAGE_NAME}/.libs"
+    )
   set_property(
     TARGET pyBiDirectionalCpp
     APPEND
     PROPERTY LINK_FLAGS "-flat_namespace -undefined suppress")
 elseif(UNIX)
   set_target_properties(
-    pyBiDirectionalCpp PROPERTIES INSTALL_RPATH
-                                  "$ORIGIN:$ORIGIN/../../${PROJECT_NAME}/.libs")
+    pyBiDirectionalCpp
+    PROPERTIES
+      INSTALL_RPATH
+      "$ORIGIN:$ORIGIN/../.libs:$ORIGIN/../../${PYTHON_PACKAGE_NAME}/.libs")
 endif()
 target_link_libraries(pyBiDirectionalCpp PRIVATE BiDirectionalCpp LEMON::LEMON)
 

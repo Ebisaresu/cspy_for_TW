@@ -11,7 +11,7 @@ import unittest
 import networkx as nx
 import numpy as np
 
-from cspy import BiDirectional
+from cspy_tw import BiDirectional
 
 # Small acyclic instance with negative weights. Complete path costs:
 #   Source-1-Sink: -3, Source-2-Sink: -6, Source-1-2-Sink: -13,

@@ -10,8 +10,8 @@ from numpy.random import choice
 import numpy as np
 
 # Local imports
-from cspy.algorithms.path_base import PathBase
-from cspy.checking import check_time_limit_breached
+from .path_base import PathBase
+from ..checking import check_time_limit_breached
 
 log = getLogger(__name__)
 

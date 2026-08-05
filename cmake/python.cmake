@@ -5,7 +5,7 @@ endif()
 # Use latest UseSWIG module
 cmake_minimum_required(VERSION 3.14)
 
-if(NOT TARGET cspy::BiDirectionalCpp)
+if(NOT TARGET ${PROJECT_NAME}::BiDirectionalCpp)
   message(FATAL_ERROR "Python: missing BiDirectional TARGET")
 endif()
 
@@ -39,6 +39,10 @@ add_subdirectory(src/cc/python)
 # expression e.g. $<TARGET_FILE_NAME:labelling>
 configure_file(python/setup.py.in
                ${CMAKE_CURRENT_BINARY_DIR}/python/setup.py.in @ONLY)
+# The importable package reads its version from this generated module, so that
+# PROJECT_VERSION in the top level CMakeLists.txt is the only place to edit.
+configure_file(python/version.py.in
+               ${CMAKE_CURRENT_BINARY_DIR}/python/_version.py @ONLY)
 file(
   GENERATE
   OUTPUT python/$<CONFIG>/setup.py
@@ -76,29 +80,45 @@ search_python_module(wheel)
 add_custom_target(
   python_package ALL
   # Create appropriate package structure
-  COMMAND ${CMAKE_COMMAND} -E make_directory ${PROJECT_NAME}
-          ${PROJECT_NAME}/.libs ${PROJECT_NAME}/algorithms/
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_PACKAGE_NAME}
+          ${PYTHON_PACKAGE_NAME}/.libs ${PYTHON_PACKAGE_NAME}/algorithms/
   # Copy setup generated file
   COMMAND ${CMAKE_COMMAND} -E copy $<CONFIG>/setup.py setup.py
   # Copy python source code
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${PROJECT_SOURCE_DIR}/src/python/
-          ${PROJECT_NAME}/
+          ${PYTHON_PACKAGE_NAME}/
+  # Inject the generated version module (single source of truth: PROJECT_VERSION)
+  COMMAND
+    ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_BINARY_DIR}/python/_version.py
+    ${PYTHON_PACKAGE_NAME}/_version.py
+  # License files, both next to setup.py (for license_files) and inside the
+  # package (for package_data). Two mechanisms on purpose: older setuptools
+  # ignores the license_files argument.
+  COMMAND ${CMAKE_COMMAND} -E copy ${PROJECT_SOURCE_DIR}/LICENSE.txt LICENSE.txt
+  COMMAND ${CMAKE_COMMAND} -E copy ${PROJECT_SOURCE_DIR}/NOTICE.txt NOTICE.txt
+  COMMAND ${CMAKE_COMMAND} -E copy ${PROJECT_SOURCE_DIR}/LICENSE.txt
+          ${PYTHON_PACKAGE_NAME}/LICENSE.txt
+  COMMAND ${CMAKE_COMMAND} -E copy ${PROJECT_SOURCE_DIR}/NOTICE.txt
+          ${PYTHON_PACKAGE_NAME}/NOTICE.txt
+  # Long description shown on the package index page
+  COMMAND ${CMAKE_COMMAND} -E copy
+          ${PROJECT_SOURCE_DIR}/python/README_PACKAGE.md README.md
   COMMAND ${CMAKE_COMMAND} -E remove_directory dist
-  COMMAND ${CMAKE_COMMAND} -E make_directory ${PROJECT_NAME}/.libs
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_PACKAGE_NAME}/.libs
   COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:pyBiDirectionalCpp>
-          ${PROJECT_NAME}/algorithms/
+          ${PYTHON_PACKAGE_NAME}/algorithms/
   # Don't need to copy static lib on Windows
   COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:BiDirectionalCpp>
-          ${PROJECT_NAME}/.libs
+          ${PYTHON_PACKAGE_NAME}/.libs
   # copy swig generated python interface file
   COMMAND
     ${CMAKE_COMMAND} -E copy
     ${CMAKE_CURRENT_BINARY_DIR}/python/pyBiDirectionalCpp.py
-    ${PROJECT_NAME}/algorithms/
+    ${PYTHON_PACKAGE_NAME}/algorithms/
   # Build wheel
   COMMAND ${Python3_EXECUTABLE} setup.py bdist_wheel
-  BYPRODUCTS python/${PROJECT_NAME} python/build python/dist
-             python/${PROJECT_NAME}.egg-info
+  BYPRODUCTS python/${PYTHON_PACKAGE_NAME} python/build python/dist
+             python/${PYTHON_PACKAGE_NAME}.egg-info
   WORKING_DIRECTORY python)
 
 # Test Look for python module virtualenv
@@ -124,7 +144,7 @@ if(BUILD_TESTING)
     COMMAND
       ${VENV_Python_EXECUTABLE} -m pip install
       --find-links=${CMAKE_CURRENT_BINARY_DIR}/python/dist --no-index
-      ${PROJECT_NAME}
+      ${PYTHON_DISTRIBUTION_NAME}
     BYPRODUCTS ${VENV_DIR}
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
   # run the tests within the virtualenv Test to be run from build/

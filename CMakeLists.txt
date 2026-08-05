@@ -41,11 +41,25 @@ if(POLICY CMP0094)
 endif()
 
 project(
+  # Unchanged on purpose: PROJECT_NAME drives the C++ export set
+  # (cspyTargets), the cspy:: namespace and cspyConfig.cmake. See cmake/cpp.cmake.
   cspy
-  VERSION 1.0.3
+  VERSION 1.1.0
   LANGUAGES CXX)
 message(STATUS "project: ${PROJECT_NAME}")
 message(STATUS "version: ${PROJECT_VERSION}")
+
+# Python-facing names, deliberately decoupled from PROJECT_NAME.
+# PYTHON_PACKAGE_NAME is the importable package ("import cspy_tw").
+# PYTHON_DISTRIBUTION_NAME is what pip resolves ("pip install cspy-tw").
+set(PYTHON_PACKAGE_NAME
+    "cspy_tw"
+    CACHE STRING "Importable Python package name (the 'import' name)")
+set(PYTHON_DISTRIBUTION_NAME
+    "cspy-tw"
+    CACHE STRING "Distribution name used by pip (the 'pip install' name)")
+message(STATUS "python package name: ${PYTHON_PACKAGE_NAME}")
+message(STATUS "python distribution name: ${PYTHON_DISTRIBUTION_NAME}")
 
 # Force default build type to Release
 if(NOT CMAKE_BUILD_TYPE)

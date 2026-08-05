@@ -60,7 +60,7 @@ some custom REFs can be defined according to the following template:
 
 .. code-block:: python
 
-        from cspy import REFCallback
+        from cspy_tw import REFCallback
 
         class MyCallback(REFCallback):
 
@@ -116,7 +116,7 @@ e.g.
 
 .. code-block:: python
 
-        from cspy import BiDirectional, REFCallback
+        from cspy_tw import BiDirectional, REFCallback
 
         class MyCallback(REFCallback):
 
@@ -164,7 +164,7 @@ Simple interface (time windows):
 
 .. code-block:: python
 
-        from cspy import BiDirectional
+        from cspy_tw import BiDirectional
 
         # res[0] = monotone critical resource (e.g. edge count,
         #          res_cost[0] = 1 on every edge)

@@ -1,12 +1,15 @@
-from cspy.algorithms.bidirectional import BiDirectional, REFCallback
-from cspy.algorithms.tabu import Tabu
-from cspy.algorithms.greedy_elimination import GreedyElim
-from cspy.algorithms.psolgent import PSOLGENT
-from cspy.algorithms.grasp import GRASP
-from cspy.checking import check
-from cspy.preprocessing import preprocess_graph
+# _version.py is generated at build time by CMake from python/version.py.in,
+# so that project(... VERSION ...) in CMakeLists.txt is the only place to edit.
+from ._version import __version__
+from .algorithms.bidirectional import BiDirectional, REFCallback
+from .algorithms.tabu import Tabu
+from .algorithms.greedy_elimination import GreedyElim
+from .algorithms.psolgent import PSOLGENT
+from .algorithms.grasp import GRASP
+from .checking import check
+from .preprocessing import preprocess_graph
 
-name = "cspy"
+name = "cspy_tw"
 
 __all__ = [
     "BiDirectional",
@@ -17,6 +20,5 @@ __all__ = [
     "GRASP",
     "check",
     "preprocess_graph",
+    "__version__",
 ]
-
-__version__ = "0.1.0"

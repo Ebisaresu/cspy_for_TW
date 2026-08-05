@@ -1,7 +1,7 @@
 from numpy import array
 from networkx import DiGraph
 
-from cspy import BiDirectional
+from cspy_tw import BiDirectional
 
 from utils import TestingBase
 

@@ -4,7 +4,7 @@ from time import time
 from networkx import DiGraph
 from numpy import array
 
-from cspy.algorithms.tabu import Tabu
+from cspy_tw.algorithms.tabu import Tabu
 
 from utils import TestingBase
 

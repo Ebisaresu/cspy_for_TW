@@ -1,7 +1,7 @@
-cspy.BiDirectional
-==================
+cspy_tw.BiDirectional
+=====================
 
-.. automodule:: cspy.BiDirectional
+.. automodule:: cspy_tw.BiDirectional
 	:members:
    	:inherited-members:
 
@@ -27,7 +27,7 @@ To run the algorithm, create a :class:`BiDirectional` instance and call
 
 .. code-block:: python
 
-    >>> from cspy import BiDirectional
+    >>> from cspy_tw import BiDirectional
     >>> from networkx import DiGraph
     >>> from numpy import array
     >>> G = DiGraph(directed=True, n_res=2)

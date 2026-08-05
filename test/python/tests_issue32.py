@@ -1,7 +1,7 @@
 from numpy import array
 from networkx import DiGraph
 
-from cspy import BiDirectional, GreedyElim, REFCallback
+from cspy_tw import BiDirectional, GreedyElim, REFCallback
 
 from utils import TestingBase
 

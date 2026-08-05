@@ -556,7 +556,7 @@ flowchart TD
 ## 7. The `REFCallback` interface
 
 In the installed package
-(`.venv/lib/python3.13/site-packages/cspy/algorithms/pyBiDirectionalCpp.py`,
+(`.venv/lib/python3.13/site-packages/cspy_tw/algorithms/pyBiDirectionalCpp.py`,
 L530), the SWIG-generated base class declares the forward resource extension
 function as follows. The argument names, spelling included, are quoted
 verbatim:

@@ -15,7 +15,7 @@ import unittest
 import networkx as nx
 import numpy as np
 
-from cspy import BiDirectional, REFCallback
+from cspy_tw import BiDirectional, REFCallback
 
 # Small ESPPRC-TW instance (negative weights = pricing reduced costs).
 # node: (a, b, service)
@@ -693,7 +693,7 @@ class TestRequiredVisitsChecks(unittest.TestCase):
     @staticmethod
     def _native_engine(add_nodes=True):
         """A bare C++ engine on a four vertex graph 0 -> {1, 2} -> 3."""
-        from cspy.algorithms.pyBiDirectionalCpp import (
+        from cspy_tw.algorithms.pyBiDirectionalCpp import (
             BiDirectionalCpp,
             DoubleVector,
         )
@@ -763,7 +763,7 @@ class TestRequiredVisitsChecks(unittest.TestCase):
         """The bit index table must be sized by the number of required nodes
         and not by the largest user id, otherwise sparse ids allocate
         gigabytes."""
-        from cspy.algorithms.pyBiDirectionalCpp import (
+        from cspy_tw.algorithms.pyBiDirectionalCpp import (
             BiDirectionalCpp,
             DoubleVector,
         )
@@ -950,7 +950,7 @@ class TestNativeChecks(unittest.TestCase):
 
     def test_infinite_max_res_rejected_native_cpp(self):
         # The C++ guard itself (bypassing the Python-side check)
-        from cspy.algorithms.bidirectional import (
+        from cspy_tw.algorithms.bidirectional import (
             NodeWindowREF, POLICY_WINDOW_WAIT, _list_to_double_vector)
         ref = NodeWindowREF(
             3, _list_to_double_vector([10.0, float("inf")]), 0, 2, 0, 1e-9)

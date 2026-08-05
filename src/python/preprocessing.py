@@ -1,7 +1,7 @@
 from copy import deepcopy
 from logging import getLogger
 from networkx import single_source_bellman_ford
-from cspy.checking import check
+from .checking import check
 
 log = getLogger(__name__)
 

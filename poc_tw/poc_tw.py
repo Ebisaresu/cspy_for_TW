@@ -23,7 +23,7 @@ from fractions import Fraction
 import numpy as np
 import networkx as nx
 
-from cspy import BiDirectional, REFCallback
+from cspy_tw import BiDirectional, REFCallback
 
 TOL = 1e-9
 

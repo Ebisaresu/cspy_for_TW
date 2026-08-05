@@ -464,7 +464,7 @@ $P_3$ with $z^{*} = -10$, unique.
 ```python
 import networkx as nx
 import numpy as np
-from cspy import BiDirectional
+from cspy_tw import BiDirectional
 
 # res[0] = edge-count counter (critical, res_cost[0]=1 on every edge)
 # res[1] = time (res_cost[1] = travel time t_ij)
@@ -530,7 +530,7 @@ instance data. Each is named before its code.
 ```python
 import networkx as nx
 import numpy as np
-from cspy import BiDirectional
+from cspy_tw import BiDirectional
 
 def build(n_res):
     G = nx.DiGraph(n_res=n_res)
@@ -670,7 +670,7 @@ horizon $H = 20$, and resource 1 a time resource under `window_wait` whose
 only real window is $[8, 12]$ at vertex 1, with service time 1 there.
 
 ```python
-from cspy.algorithms.pyBiDirectionalCpp import (
+from cspy_tw.algorithms.pyBiDirectionalCpp import (
     NodeWindowREF, DoubleVector, POLICY_WINDOW_WAIT)
 
 n_vertices, source_id, sink_id, critical_res, eps = 3, 0, 2, 0, 1e-9
@@ -827,7 +827,7 @@ time by the constant 3 changes the optimal visiting order.
 """Solve a six-customer TSPTW with cspy, using two resources only."""
 import networkx as nx
 import numpy as np
-from cspy import BiDirectional
+from cspy_tw import BiDirectional
 
 n = 6
 travel = ((0, 11, 8, 5, 8, 5, 7), (9, 0, 7, 12, 3, 11, 7), (8, 12, 0, 4, 8, 3, 11),
@@ -995,7 +995,7 @@ Instance C they do:
 six-customer TSPTW instance of tsptw_cspy.py."""
 import networkx as nx
 import numpy as np
-from cspy import BiDirectional
+from cspy_tw import BiDirectional
 
 n = 6
 travel = ((0, 11, 8, 5, 8, 5, 7), (9, 0, 7, 12, 3, 11, 7), (8, 12, 0, 4, 8, 3, 11),
@@ -1247,7 +1247,7 @@ The instance is Instance C of Section 6.3, with known optimum 33.
 below a target cost is found, and read the reason the search stopped."""
 import networkx as nx
 import numpy as np
-from cspy import BiDirectional
+from cspy_tw import BiDirectional
 
 n = 6
 travel = ((0, 11, 8, 5, 8, 5, 7), (9, 0, 7, 12, 3, 11, 7), (8, 12, 0, 4, 8, 3, 11),
@@ -1325,7 +1325,7 @@ improvability.
 the time limit, on Instance C of Section 6.3."""
 import networkx as nx
 import numpy as np
-from cspy import BiDirectional
+from cspy_tw import BiDirectional
 
 n = 6
 travel = ((0, 11, 8, 5, 8, 5, 7), (9, 0, 7, 12, 3, 11, 7), (8, 12, 0, 4, 8, 3, 11),
@@ -1431,7 +1431,7 @@ The maximum reward is 18.
 the target value, and ask for a strictly smaller (negated) cost."""
 import networkx as nx
 import numpy as np
-from cspy import BiDirectional
+from cspy_tw import BiDirectional
 
 # Each edge carries a reward; the goal is a path whose total reward is
 # larger than a given target. BiDirectional minimises, so store
@@ -1609,7 +1609,7 @@ construction cost is negligible, as Section 9.3 shows).
 from itertools import combinations
 import networkx as nx
 import numpy as np
-from cspy import BiDirectional
+from cspy_tw import BiDirectional
 
 N = 4  # depot 0 + customers 1..4, at most 3 customers per route (max_res[0] = 4 edges)
 TRAVEL = ((0, 8, 9, 14, 12), (8, 0, 5, 8, 11), (9, 5, 0, 6, 8),
@@ -2017,7 +2017,7 @@ $ cd <repository root>
 $ cmake -S . -Bbuild -DBUILD_PYTHON=ON     # first time only (no-op if already configured)
 $ cmake --build build -j2                  # incremental build (keep -j2 on M1 8GB)
 $ .venv/bin/pip install --force-reinstall \
-    build/python/dist/cspy-1.0.3-cp313-cp313-macosx_26_0_arm64.whl
+    build/python/dist/cspy_tw-1.1.0-cp313-cp313-macosx_26_0_arm64.whl
 ```
 
 The build automatically runs SWIG wrapper generation → C++ compilation →

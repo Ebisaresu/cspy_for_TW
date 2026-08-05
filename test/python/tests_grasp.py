@@ -1,7 +1,7 @@
 from networkx import DiGraph
 from numpy import array
 
-from cspy.algorithms.grasp import GRASP
+from cspy_tw.algorithms.grasp import GRASP
 
 from utils import TestingBase
 

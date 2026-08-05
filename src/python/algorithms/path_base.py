@@ -7,8 +7,8 @@ from itertools import filterfalse, tee, chain
 from numpy import zeros, array
 from networkx import shortest_simple_paths, astar_path, negative_edge_cycle
 
-from cspy.checking import check
-from cspy.preprocessing import preprocess_graph
+from ..checking import check
+from ..preprocessing import preprocess_graph
 
 LOG = getLogger(__name__)
 

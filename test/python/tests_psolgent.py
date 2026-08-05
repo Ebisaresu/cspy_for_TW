@@ -2,7 +2,7 @@ from networkx import DiGraph
 from numpy import array
 from numpy.random import RandomState
 
-from cspy.algorithms.psolgent import PSOLGENT
+from cspy_tw.algorithms.psolgent import PSOLGENT
 
 from utils import TestingBase
 

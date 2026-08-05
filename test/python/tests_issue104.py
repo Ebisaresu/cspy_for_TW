@@ -1,7 +1,7 @@
 import unittest
 from networkx import DiGraph, read_graphml
 
-from cspy import BiDirectional
+from cspy_tw import BiDirectional
 from utils import TestingBase
 
 

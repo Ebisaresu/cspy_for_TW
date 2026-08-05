@@ -3,8 +3,8 @@ import unittest
 from networkx import MultiGraph, DiGraph
 from numpy import array
 
-from cspy.checking import check
-from cspy.preprocessing import preprocess_graph
+from cspy_tw.checking import check
+from cspy_tw.preprocessing import preprocess_graph
 
 
 class TestsPreprocessing(unittest.TestCase):

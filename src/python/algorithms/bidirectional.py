@@ -2,8 +2,8 @@
 from typing import Dict, Hashable, Iterable, List, Optional, Tuple, Union
 
 from networkx import DiGraph, convert_node_labels_to_integers, get_node_attributes
-from cspy.preprocessing import preprocess_graph
-from cspy.checking import (
+from ..preprocessing import preprocess_graph
+from ..checking import (
     check,
     check_native_windows,
     check_required_visits,

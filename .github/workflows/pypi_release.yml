@@ -59,7 +59,7 @@ jobs:
         run: auditwheel repair build/python/wheelhouse/* --plat "$PLAT" -w build/python/wheelhouse-repaired
       - name: test
         run: |
-          "${PYBIN}/pip" install cspy --no-index -f build/python/wheelhouse-repaired/
+          "${PYBIN}/pip" install cspy-tw --no-index -f build/python/wheelhouse-repaired/
           "${PYBIN}/python3" -m unittest discover -s test/python/
       - name: upload artifact
         uses: actions/upload-artifact@v4
@@ -142,7 +142,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/cspy
+      url: https://pypi.org/p/cspy-tw
     permissions:
       id-token: write  # IMPORTANT: this permission is mandatory for trusted publishing
     steps:

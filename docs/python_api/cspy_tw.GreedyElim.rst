@@ -1,10 +1,12 @@
-cspy.Tabu
-=========
+cspy_tw.GreedyElim
+==================
 
-.. automodule:: cspy.Tabu
-    :members:
+.. automodule:: cspy_tw.GreedyElim
+	:members:
    	:inherited-members:
- 
+
+
+
 Notes
 -----
 The input graph must have a ``n_res`` attribute.
@@ -13,15 +15,14 @@ See `Using cspy`_
 
 .. _Using cspy: https://cspy.readthedocs.io/en/latest/how_to.html
 
+
 Example
 -------
-To run the algorithm, create a :class:`Tabu` instance, call `run`, and then
-query the attributes of interest: `path`, `total_cost`, or
-`consumed_resources`.
+To run the algorithm, create a :class:`GreedyElim` instance and call `run`.
 
 .. code-block:: python
 
-    >>> from cspy import Tabu
+    >>> from cspy_tw import GreedyElim
     >>> from networkx import DiGraph
     >>> from numpy import array
     >>> G = DiGraph(directed=True, n_res=2)
@@ -35,8 +36,8 @@ query the attributes of interest: `path`, `total_cost`, or
     >>> G.add_edge('F', 'Sink', res_cost=array([1, 1]), weight=1)
     >>> G.add_edge('E', 'Sink', res_cost=array([1, 1]), weight=1)
     >>> max_res, min_res = [5, 5], [0, 0]
-    >>> tabu = Tabu(G, max_res, min_res)
-    >>> tabu.run()
-    >>> print(tabu.path)
+    >>> greedelim = GreedyElim(G, max_res, min_res)
+    >>> greedelim.run()
+    >>> print(greedelim.path)
     ['Source', 'A', 'C', 'D', 'E', 'Sink']
 

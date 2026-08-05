@@ -34,6 +34,13 @@ A collection of algorithms for the (resource) Constrained Shortest Path (CSP) pr
 > that every node of a given set is visited. See
 > [Time windows (this fork)](#5-time-windows-this-fork).
 >
+> This fork is distributed under its own names, so that it can be installed
+> alongside the upstream package instead of overwriting it: the distribution
+> name is **`cspy-tw`** and the importable package name is **`cspy_tw`**
+> (`from cspy_tw import BiDirectional`). Elsewhere in this file, plain `cspy`
+> refers to the algorithm library or to the upstream package, never to the
+> import name of this fork.
+>
 > These additions are **not on PyPI**: `pip install cspy` installs the upstream
 > package and does not contain them, so this fork has to be
 > [built from source](#53-installing-this-fork). The badges above are the upstream
@@ -223,9 +230,10 @@ or
 python3 -m pip install cspy
 ```
 
-Note that this installs the upstream package from PyPI, which does **not** include
-this fork's native time windows. Those require a
-[source build](#53-installing-this-fork).
+Note that this installs the **upstream** package from PyPI, which does **not**
+include this fork's native time windows, and which is imported as `cspy`. This
+fork is a separate distribution named `cspy-tw`, imported as `cspy_tw`, and
+requires a [source build](#53-installing-this-fork).
 
 ## 4. Quick start — Instance A
 
@@ -297,7 +305,7 @@ default `"both"`.
 
 ```python
 # Imports
-from cspy import BiDirectional
+from cspy_tw import BiDirectional
 from networkx import DiGraph
 from numpy import array
 
@@ -503,7 +511,7 @@ requirements list under [Building](#6-building) below:
 ```none
 cmake -S . -Bbuild -DBUILD_PYTHON=ON
 cmake --build build
-python3 -m pip install build/python/dist/cspy-*.whl
+python3 -m pip install build/python/dist/cspy_tw-*.whl
 ```
 
 The full procedure, including how to rebuild after changing the C++ side, is in
@@ -586,7 +594,7 @@ weight — which is why the objective has to be read off $w$ and never off $t$.
 
 ```python
 # Imports
-from cspy import BiDirectional
+from cspy_tw import BiDirectional
 from networkx import DiGraph
 
 # res[0] = edge counter (critical resource, stays additive), res[1] = time

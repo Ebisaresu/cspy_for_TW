@@ -1,8 +1,8 @@
 from networkx import DiGraph
 from numpy import array
 
-from cspy.algorithms.tabu import Tabu
-from cspy.algorithms.bidirectional import BiDirectional
+from cspy_tw.algorithms.tabu import Tabu
+from cspy_tw.algorithms.bidirectional import BiDirectional
 
 from utils import TestingBase
 

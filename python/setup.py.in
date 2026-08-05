@@ -1,6 +1,12 @@
+import os
+
 from setuptools import find_packages, setup
 from setuptools.dist import Distribution
 from setuptools.command.install import install
+
+_here = os.path.abspath(os.path.dirname(__file__))
+with open(os.path.join(_here, 'README.md'), encoding='utf-8') as _f:
+    _long_description = _f.read()
 
 
 class BinaryDistribution(Distribution):
@@ -20,29 +26,56 @@ class InstallPlatlib(install):
 
 
 setup(
-    name='@PROJECT_NAME@',
+    name='@PYTHON_DISTRIBUTION_NAME@',
     version='@PROJECT_VERSION@',
-    author='torressa',
-    author_email='\"David Torres\" <david.sanchez@sintef.no>',
-    url='https://github.com/torressa/cspy',
-    description='(Resource) Constrained  Shortest Path algorithms in Python',
+    author='Ebisaresu',
+    author_email='69381830+Ebisaresu@users.noreply.github.com',
+    url='https://github.com/Ebisaresu/cspy_for_TW',
+    project_urls={
+        'Source': 'https://github.com/Ebisaresu/cspy_for_TW',
+        'Upstream project': 'https://github.com/torressa/cspy',
+        'Upstream documentation': 'https://cspy.readthedocs.io/',
+    },
+    description=('Resource constrained shortest path algorithms with native '
+                 'time windows and per-node service times; a fork of cspy'),
+    long_description=_long_description,
+    long_description_content_type='text/markdown',
+    license='MIT',
+    license_files=['LICENSE.txt', 'NOTICE.txt'],
+    python_requires='>=3.8',
     distclass=BinaryDistribution,
     cmdclass={'install': InstallPlatlib},
-    packages=find_packages(),
+    # Restricted on purpose: a bare find_packages() would also pick up a stale
+    # package directory left over in the build tree from an earlier name.
+    packages=find_packages(include=[
+        '@PYTHON_PACKAGE_NAME@',
+        '@PYTHON_PACKAGE_NAME@.*',
+    ]),
     package_data={
-        '@PROJECT_NAME@': ['.libs/*', 'algorithms/*'],
+        '@PYTHON_PACKAGE_NAME@': [
+            '.libs/*',
+            'algorithms/*',
+            'LICENSE.txt',
+            'NOTICE.txt',
+        ],
     },
     include_package_data=True,
     install_requires=['networkx', 'numpy'],
     classifiers=[
+        'Development Status :: 4 - Beta',
+        'Intended Audience :: Science/Research',
+        'License :: OSI Approved :: MIT License',
         'Operating System :: POSIX :: Linux',
         'Operating System :: MacOS :: MacOS X',
         'Operating System :: Microsoft :: Windows',
         'Programming Language :: Python',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
+        'Programming Language :: Python :: 3.13',
         'Programming Language :: C++',
+        'Topic :: Scientific/Engineering :: Mathematics',
     ],
 )

@@ -99,7 +99,7 @@ def check_native_windows(
     window_policy,
 ):
     """Validate the native node-window arguments of
-    :class:`cspy.BiDirectional` (``time_windows`` / ``service_times`` /
+    :class:`cspy_tw.BiDirectional` (``time_windows`` / ``service_times`` /
     ``node_windows`` / ``node_consumption`` / ``window_policy``).
 
     :raises: Raises an exception listing all violations found.
@@ -369,7 +369,7 @@ def check_required_visits(
     critical_res=None,
     window_policy=None,
 ):
-    """Validate the mandatory-visit arguments of :class:`cspy.BiDirectional`
+    """Validate the mandatory-visit arguments of :class:`cspy_tw.BiDirectional`
     (``require_all_visits`` / ``required_nodes``).
 
     Parameters
@@ -582,7 +582,7 @@ def _check_window_dict(G, what, windows, max_res, r, errors):
 
 def check_threshold_strict(threshold, threshold_strict, algorithm=None):
     """Validate the ``threshold_strict`` argument of
-    :class:`cspy.BiDirectional`.
+    :class:`cspy_tw.BiDirectional`.
 
     Parameters
     ----------

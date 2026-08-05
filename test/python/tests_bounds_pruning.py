@@ -3,8 +3,8 @@ import unittest
 
 from networkx import DiGraph, all_simple_paths
 
-from cspy import BiDirectional
-from cspy.algorithms import bidirectional as bidirectional_module
+from cspy_tw import BiDirectional
+from cspy_tw.algorithms import bidirectional as bidirectional_module
 
 
 class TestsBoundsPruning(unittest.TestCase):

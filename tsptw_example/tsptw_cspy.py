@@ -98,7 +98,7 @@ from typing import Optional, Sequence
 import networkx as nx
 import numpy as np
 
-from cspy import BiDirectional, REFCallback
+from cspy_tw import BiDirectional, REFCallback
 
 TOL = 1e-9  # for floating-point comparisons (moot in practice, since all data in this example are integers)
 

@@ -3,6 +3,9 @@ nbsphinx
 sphinx_material
 recommonmark
 sphinx_copybutton
-cspy
+# The autodoc build needs the package itself importable as cspy_tw.
+# cspy-tw is not on PyPI yet, so install a locally built wheel instead of
+# listing it here; listing the upstream "cspy" would document the wrong API.
+# cspy-tw
 breathe
 

@@ -1,0 +1,16 @@
+NOTICE
+======
+
+This package (cspy-tw, imported as `cspy_tw`) is a fork of `cspy` by
+David Torres Sanchez, distributed under the MIT License. The original
+license text, including the original copyright notice, is kept unchanged
+in LICENSE.txt and applies to the code inherited from the upstream project.
+
+Modifications made in this fork are copyright (c) 2026 Ebisaresu, and are
+released under the same MIT License.
+
+This fork is not affiliated with, nor endorsed by, the upstream project.
+
+  Upstream project:       https://github.com/torressa/cspy
+  Upstream documentation: https://cspy.readthedocs.io/
+  This fork:              https://github.com/Ebisaresu/cspy_for_TW
