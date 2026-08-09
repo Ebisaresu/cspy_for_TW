@@ -20,8 +20,13 @@ namespace bidirectional {
 /// different)
 struct Vertex {
  public:
-  int lemon_id;
-  int user_id;
+  /// -1 means "not set yet". Without the initialisers a default-constructed
+  /// Vertex holds whatever was in the memory, and DiGraph::source / ::sink
+  /// stay default-constructed until addNodes finds them -- so a graph missing
+  /// its source or sink would feed a garbage lemon id to LEMON instead of
+  /// being rejected.
+  int lemon_id = -1;
+  int user_id  = -1;
 };
 
 /**
@@ -93,7 +98,11 @@ class DiGraph {
   /// Vector with vertices
   std::vector<Vertex>      vertices;
   NegativeCostCyclePresent negative_cost_cycle_present;
-  bool                     all_resources_positive;
+  /// Whether every arc added so far has non-negative resource consumption.
+  /// Accumulated by addEdge, hence the `true` start: a graph with no arcs
+  /// vacuously satisfies it, and reading it uninitialised would be undefined
+  /// behaviour (runPreprocessing reads it whether or not any arc was added).
+  bool all_resources_positive = true;
 
   /**
    * Constructor.

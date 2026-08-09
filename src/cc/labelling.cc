@@ -2,6 +2,8 @@
 
 #include <algorithm> // sort, includes, copy_if, push/make_heap
 #include <iostream>  // ostream
+#include <stdexcept> // invalid_argument (REF_callback return-length checks)
+#include <string>    // to_string
 
 namespace labelling {
 
@@ -126,6 +128,22 @@ Label Label::extend(
           partial_path,
           weight);
     }
+  }
+  // A custom REF_callback is user code, so its return value is input, not an
+  // invariant. Everything downstream indexes the resource vector positionally
+  // against `max_res` / `min_res` / `critical_res`; a vector of the wrong
+  // length there is an out-of-bounds access rather than a wrong answer. A
+  // short one is the worse of the two: the feasibility loop is bounded by the
+  // vector's own length, so the critical resource stops being checked and the
+  // search never terminates, allocating labels until the process is killed.
+  if (params_ptr->ref_callback != nullptr &&
+      new_resources.size() != max_res.size()) {
+    throw std::invalid_argument(
+        "[REFCallback] " +
+        std::string(direction == bidirectional::FWD ? "REF_fwd" : "REF_bwd") +
+        " returned " + std::to_string(new_resources.size()) +
+        " resources, but the problem has " + std::to_string(max_res.size()) +
+        " (the length of max_res). Return one value per resource.");
   }
   // Create new label. `*this` is passed as the parent so that the
   // required-visit bit set is inherited instead of rebuilt.
@@ -388,6 +406,10 @@ bool operator>(const Label& label1, const Label& label2) {
 
 std::ostream& operator<<(std::ostream& os, const Label& label) {
   os << label.getString();
+  // Falling off the end of a function that has to return a value is undefined
+  // behaviour, not a missing convenience: the caller chains on whatever the
+  // return register happened to hold.
+  return os;
 }
 
 /**
@@ -449,8 +471,20 @@ Label processBwdLabel(
   std::reverse(new_path.begin(), new_path.end());
   // Init resources
   std::vector<double> new_resources(label.resource_consumption);
+  // A default-constructed Label is used throughout as "no label": its
+  // params_ptr is null and its resource vector is empty. Reading
+  // params_ptr->critical_res and writing new_resources[c_res] on one of those
+  // is a null dereference followed by a write past the end of an empty
+  // vector, so hand the dummy straight back instead.
+  if (label.params_ptr == nullptr || new_resources.empty()) {
+    return Label();
+  }
   // Invert monotone resource
-  const int& c_res     = label.params_ptr->critical_res;
+  const int& c_res = label.params_ptr->critical_res;
+  if (c_res < 0 || c_res >= static_cast<int>(new_resources.size()) ||
+      c_res >= static_cast<int>(max_res.size())) {
+    return Label();
+  }
   new_resources[c_res] = max_res[c_res] - new_resources[c_res];
 
   if (!invert_min_res) {
@@ -480,11 +514,17 @@ bool halfwayCheck(const Label& label, const std::vector<Label>& labels) {
   // attempt to find path in already seen labels with lower phi value
   auto it =
       std::find_if(labels.begin(), labels.end(), [&label](const Label& l) {
-        // If path already seen
+        // If path already seen.
+        // The four-iterator std::equal is what makes this safe: the
+        // three-iterator form reads l.partial_path.size() elements out of
+        // label.partial_path whatever that one's length is, so comparing
+        // against any shorter path runs off the end of its buffer. The
+        // four-iterator form compares the lengths first and answers false.
         if (std::equal(
                 l.partial_path.begin(),
                 l.partial_path.end(),
-                label.partial_path.begin())) {
+                label.partial_path.begin(),
+                label.partial_path.end())) {
           // Match if phi value is lower
           return (l.phi < label.phi);
         }
@@ -563,6 +603,16 @@ Label mergeLabels(
         fwd_label.vertex.user_id,
         bwd_label.vertex.user_id,
         adj_vertex.resource_consumption);
+    // Same contract as REF_fwd/REF_bwd in Label::extend: the join result is
+    // indexed positionally below (`final_res[c_res]`), so a wrong length is
+    // an out-of-bounds write, not a wrong answer.
+    if (final_res.size() != max_res.size()) {
+      throw std::invalid_argument(
+          "[REFCallback] REF_join returned " +
+          std::to_string(final_res.size()) +
+          " resources, but the problem has " + std::to_string(max_res.size()) +
+          " (the length of max_res). Return one value per resource.");
+    }
     // Invert backward resource
     const int&   c_res = params_ptr->critical_res;
     const double bwd_res_inverted =

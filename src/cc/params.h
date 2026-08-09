@@ -84,10 +84,19 @@ class Params {
   /* Constructors */
 
   Params(){};
-  ~Params() {
-    ref_callback = nullptr;
-    delete ref_callback;
-  };
+  /**
+   * `ref_callback` is deliberately *not* deleted: Params observes it, it does
+   * not own it. The owner is whoever called setREFCallback -- for the Python
+   * interface that is the BiDirectional wrapper, which holds the callback in
+   * an attribute for as long as the C++ object lives.
+   *
+   * This used to read `ref_callback = nullptr; delete ref_callback;`, which
+   * deletes a null pointer and so already did nothing; it is spelled out
+   * rather than left as a no-op that looks like an ownership claim, because
+   * "fixing" it into a real delete would double-free the SWIG director object
+   * that Python is still holding.
+   */
+  ~Params() = default;
 
   /* Public methods */
 

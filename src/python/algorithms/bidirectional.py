@@ -5,6 +5,7 @@ from networkx import DiGraph, convert_node_labels_to_integers, get_node_attribut
 from ..preprocessing import preprocess_graph
 from ..checking import (
     check,
+    check_critical_res,
     check_native_windows,
     check_required_visits,
     check_threshold_strict,
@@ -294,6 +295,7 @@ class BiDirectional:
         # Check inputs
         check(G, max_res, min_res, direction, REF_callback, __name__)
         check_threshold_strict(threshold, threshold_strict, __name__)
+        check_critical_res(critical_res, max_res, __name__)
         # check_seed(seed, __name__)
         check_native_windows(
             G,
@@ -403,6 +405,14 @@ class BiDirectional:
             # disown it first by calling __disown__).
             # see: https://github.com/swig/swig/blob/b6c2438d7d7aac5711376a106a156200b7ff1056/Examples/python/callback/runme.py#L36
             self.bidirectional_cpp.setREFCallback(REF_callback)
+            # The reference above lives on *this* wrapper, which is not what
+            # the C++ object's lifetime is tied to: extracting
+            # `alg.bidirectional_cpp` and dropping `alg` collects the director
+            # object while the engine still holds its raw pointer, and the
+            # labelling loop then calls through freed memory. Tie the callback
+            # to the C++ proxy as well, exactly as the native window REF below
+            # already does.
+            self.bidirectional_cpp._ref_callback_keepalive = REF_callback
         # Native windows REF (pure C++, non-director proxy: REF calls during
         # the labelling loop never cross the Python boundary).
         self._window_ref = None
@@ -429,8 +439,50 @@ class BiDirectional:
             self.bidirectional_cpp.setTwoCycleElimination(True)
 
     def run(self):
-        "Run the algorithm in series"
+        """Run the algorithm in series.
+
+        Single-shot: the search state is not rebuilt between calls, so a
+        second call on the same object is refused. Build a fresh
+        ``BiDirectional`` for every run. (Before this was enforced, a second
+        call with ``direction='backward'`` crashed the interpreter rather than
+        returning the documented degenerate result -- re-executing a notebook
+        cell was enough to trigger it.)
+        """
+        if self._has_run():
+            raise RuntimeError(
+                "run() has already been called on this object. The search"
+                " state is not rebuilt between calls; construct a new"
+                " BiDirectional for every run."
+            )
         self.bidirectional_cpp.run()
+
+    def _has_run(self):
+        """Whether the engine has started a search on this object.
+
+        The engine is asked rather than a flag kept here, so that the two
+        cannot disagree: ``bidirectional_cpp.run()`` can be called directly,
+        bypassing the wrapper entirely, and a mirrored flag would then report
+        "not run" for an object that has one. ``'not_run'`` is the reason the
+        engine reports until :meth:`run` sets a provisional one, which it does
+        before allocating the best label.
+        """
+        return self.bidirectional_cpp.getTerminationReason() != "not_run"
+
+    def _check_has_run(self, attribute):
+        """Refuse to read a result before :meth:`run` has produced one.
+
+        The C++ getters read the best label, which does not exist until
+        ``run()`` builds it; reaching them first dereferences a null pointer
+        and kills the interpreter outright. The engine guards this too, but
+        the check is repeated here so that the common mistake is answered by
+        Python with the name of the attribute involved, and so that a wheel
+        built from an older C++ core still fails safely.
+        """
+        if not self._has_run():
+            raise RuntimeError(
+                "{} is only available after run(). Call alg.run() before"
+                " reading it.".format(attribute)
+            )
 
     def run_parallel(self):
         "Run the algorithm in parallel"
@@ -439,6 +491,7 @@ class BiDirectional:
     @property
     def path(self):
         """Get list with nodes in calculated path."""
+        self._check_has_run("path")
         path = self.bidirectional_cpp.getPath()
         # format as list on return as SWIG returns "tuple"
         if len(path) <= 0:
@@ -448,12 +501,14 @@ class BiDirectional:
     @property
     def total_cost(self):
         """Get accumulated cost along the path."""
+        self._check_has_run("total_cost")
         path = self.bidirectional_cpp.getPath()
         return self.bidirectional_cpp.getTotalCost() if len(path) > 0 else None
 
     @property
     def consumed_resources(self):
         """Get accumulated resources consumed along the path."""
+        self._check_has_run("consumed_resources")
         path = self.bidirectional_cpp.getPath()
         res = self.bidirectional_cpp.getConsumedResources()
         if len(path) > 0 and len(res) > 0:
@@ -491,11 +546,11 @@ class BiDirectional:
         Two caveats:
 
         - :meth:`run` is single-shot per object: the internal search state is
-          not rebuilt between calls, so calling :meth:`run` a second time on
-          the same object returns a degenerate result and its
-          ``termination_reason`` is meaningless (it may even claim
-          ``'no_feasible_path'`` on a feasible instance). Build a fresh
-          ``BiDirectional`` object for every run.
+          not rebuilt between calls, so a second call on the same object
+          raises ``RuntimeError``. It used to return a degenerate result with
+          a meaningless ``termination_reason``, and with
+          ``direction='backward'`` it crashed the interpreter outright. Build
+          a fresh ``BiDirectional`` object for every run.
         - The time limit is checked before the threshold, so when both stop
           conditions hold at the same iteration the reason is
           ``'time_limit_reached'``. For the same reason a search whose last
@@ -511,6 +566,7 @@ class BiDirectional:
         tight (difference between final resource and maximum) and prints a
         message if it doesn't match to the one chosen (or default one).
         """
+        self._check_has_run("check_critical_res()")
         self.bidirectional_cpp.checkCriticalRes()
 
     def _init_graph(self):

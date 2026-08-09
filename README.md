@@ -229,16 +229,20 @@ the three routes below instead.
 
 |     | Route | What the machine needs | When to use it |
 |:----|:------|:-----------------------|:---------------|
-| (a) | [A prebuilt wheel](#a-a-prebuilt-wheel-from-the-releases-page) | `pip`, nothing else | Normal use — **but there is no release yet** |
-| (b) | [Installing from the repository address](#b-installing-directly-from-the-repository) | A C++ compiler | No wheel matches your machine, or there is none |
+| (a) | [A prebuilt wheel](#a-a-prebuilt-wheel-from-the-releases-page) | `pip`, nothing else | **Normal use — prefer this** |
+| (b) | [Installing from the repository address](#b-installing-directly-from-the-repository) | A C++ compiler | No wheel matches your machine |
 | (c) | [A source build](#c-a-source-build) | CMake, SWIG, a C++ compiler | Working on the C++ side |
 
-**As of this writing the releases page is empty**, so route (a) is not available
-to anyone yet and everybody takes route (b) or (c). The workflow that produces
-those wheels is written but has never run: no tag has been pushed and no
-continuous integration run has built a wheel on any platform. Read (a) as a
-description of what a release is intended to contain, not as something that has
-been observed to work.
+**Take route (a) unless you have a reason not to**, and on Windows in
+particular. The wheels attached to
+[v1.1.0](https://github.com/Ebisaresu/cspy_for_TW/releases/tag/v1.1.0) were
+built by continuous integration on each platform and had the test suite run
+against them there; a Windows wheel additionally goes through `delvewheel`,
+which copies the Visual C++ runtime it needs into the wheel so that loading it
+does not depend on which copy the rest of the process happens to have already
+loaded. A source build gets neither of those. If you are on Windows and
+something crashes, installing the matching wheel is the first thing to try —
+see [If the Jupyter kernel dies](#if-the-jupyter-kernel-dies).
 
 All three install the same thing under the same names: the distribution is
 `cspy-tw` and the importable package is `cspy_tw`. Both names differ from the
@@ -252,10 +256,9 @@ other's objects.
 
 #### (a) A prebuilt wheel from the releases page
 
-> **Nothing to download yet.** No version of this fork has been tagged, so the
-> [releases page](https://github.com/Ebisaresu/cspy_for_TW/releases) holds no
-> wheels. Take route (b) below. The rest of this section describes what a
-> release will contain once one is cut.
+[v1.1.0](https://github.com/Ebisaresu/cspy_for_TW/releases/tag/v1.1.0) is
+tagged and carries 25 wheels, covering CPython 3.9 to 3.13 on all three
+platforms.
 
 A wheel is a prebuilt binary: it already contains the compiled C++ core, so
 nothing is compiled on your machine and no build tools are needed. A release
@@ -292,6 +295,15 @@ means CPython 3.13. If `pip` answers that the file `is not a supported wheel on
 this platform`, the wheel does not match the interpreter it was given to: check
 `python3 --version` and pick another one. If nothing on the page matches your
 machine at all, take route (b).
+
+On Windows with Anaconda, for CPython 3.10 that is:
+
+```none
+python -m pip install --force-reinstall --no-cache-dir https://github.com/Ebisaresu/cspy_for_TW/releases/download/v1.1.0/cspy_tw-1.1.0-cp310-cp310-win_amd64.whl
+```
+
+`--force-reinstall` matters when a source build is already installed: without
+it `pip` sees the same version number and leaves the existing one in place.
 
 #### (b) Installing directly from the repository
 
@@ -336,8 +348,7 @@ The command took about half a minute on an Apple silicon laptop; on a slower
 machine, or one where CMake and Ninja have to be downloaded first, expect a few
 minutes. No timing has been measured on Windows. A particular
 revision can be pinned by appending it to the address, for example
-`git+https://github.com/Ebisaresu/cspy_for_TW.git@v1.1.0` — but note that no
-such tag exists on this fork yet, so pin a commit hash instead.
+`git+https://github.com/Ebisaresu/cspy_for_TW.git@v1.1.1`.
 
 #### (c) A source build
 
@@ -381,7 +392,7 @@ the build system is [Building](#6-building) below.
 
 ```console
 $ python3 -c "import cspy_tw; print(cspy_tw.__version__)"
-1.1.0
+1.1.1
 ```
 
 The upstream package answers `import cspy` and knows nothing about
@@ -392,6 +403,112 @@ fork:
 $ python3 -c "import inspect; from cspy_tw import BiDirectional; print('time_windows' in inspect.signature(BiDirectional.__init__).parameters)"
 True
 ```
+
+#### If the Jupyter kernel dies
+
+> **The Kernel for CSPY_TW.ipynb appears to have died. It will restart
+> automatically.**
+
+That message means the Python process was killed rather than an exception
+raised, so there is no traceback to read. Eight ways to provoke it from the
+documented interface were found and fixed; if you are seeing it, the first
+thing to establish is whether your installation predates the fixes:
+
+```none
+python3 tools/diagnose_kernel_crash.py
+```
+
+**On Windows, try the prebuilt wheel first**, before reading any further. A
+source build (`pip install git+https://...`) is not put through `delvewheel`,
+so the extension resolves `MSVCP140.dll` by name against whichever copy the
+process has already loaded — and Anaconda ships its own. The released wheel
+carries the runtime it was built against inside it and was tested on a Windows
+runner:
+
+```none
+python -m pip install --force-reinstall --no-cache-dir https://github.com/Ebisaresu/cspy_for_TW/releases/download/v1.1.0/cspy_tw-1.1.0-cp310-cp310-win_amd64.whl
+```
+
+(substitute `cp39`/`cp311`/`cp312`/`cp313` for other Python versions). If that
+makes the crash go away, it was the local build, not your model.
+
+If `pip` answers **`is not a supported wheel on this platform`**, it compared
+the wheel's tag against the interpreter's and found no overlap — the message
+names the wheel but not the interpreter, which is the half that is wrong. Ask
+the interpreter itself:
+
+```none
+python tools/pick_wheel.py
+```
+
+It prints what the running Python accepts, reads the asset list from the
+releases page, and gives the install command for the wheel that matches — or
+says which ones exist and why none of them fits. The usual answers are that
+`python` on `PATH` is a different installation from the one Jupyter uses, or
+that it is 32-bit (`win32`) or ARM (`win_arm64`) rather than `win_amd64`.
+
+Each check runs in its own subprocess, so the script survives the crashes it
+is looking for and names the one that fired. It exits `0` when every check
+raises an ordinary exception, which is what a current installation does.
+Reinstall with `pip install --force-reinstall --no-cache-dir
+git+https://github.com/Ebisaresu/cspy_for_TW.git` if any check still crashes.
+
+The mistakes that used to be fatal, all of which now raise:
+
+| What you did | What used to happen |
+|:-------------|:--------------------|
+| Read `path`, `total_cost` or `consumed_resources`, or called `check_critical_res()`, **before `run()`** | null dereference — the result does not exist yet |
+| Called **`run()` twice** on one object (re-running a notebook cell), with `direction='backward'` | segmentation fault in the joining step |
+| Passed a **`critical_res` outside `[0, len(max_res))`** | out-of-bounds write; the process died later, at a point that moved between runs |
+| Wrote a **`REF_callback` returning the wrong number of resources** | over-read, or a search that never terminated and allocated until the process was killed |
+| Kept `alg.bidirectional_cpp` and dropped `alg`, with a custom `REF_callback` | the callback was collected while C++ still held its raw pointer |
+| Passed an **empty `max_res`/`min_res`**, or two of different lengths | an empty list is falsy, so every resource check was skipped and the engine indexed the empty bounds |
+
+**Check that the Python you installed into is the Python Jupyter runs.** This
+is the one cause the checks above cannot see, and it is easy to arrange by
+accident with several conda environments. In a notebook cell:
+
+```python
+import sys; print(sys.executable); print(sys.version)
+```
+
+and compare with `python -c "import sys; print(sys.executable, sys.version)"`
+in the shell where you ran `pip`. If they differ, install from inside the
+notebook instead — `%pip` (not `!pip`) installs into the kernel's own
+environment:
+
+```python
+%pip install --force-reinstall --no-cache-dir <the URL tools/pick_wheel.py printed>
+```
+
+Versions before this fix built the extension module without an ABI tag
+(`_pyBiDirectionalCpp.pyd` rather than `_pyBiDirectionalCpp.cp312-win_amd64.pyd`),
+which let a module built for one CPython be loaded by another instead of
+skipped — on Windows a hard crash, because the `.pyd` drags its own
+`pythonXY.dll` into the process. If the two interpreters above differ, that
+alone can be the whole story.
+
+Two things that are **not** fixed by an upgrade, because they are properties
+of the problem rather than defects:
+
+- **Running out of memory.** `elementary=True`, and `require_all_visits=True`
+  above all, retain a number of labels that grows exponentially with the node
+  count; the label store is never pruned. A large instance exhausts memory and
+  the operating system kills the kernel, which looks exactly like a crash.
+  Watch the process's memory while it runs, and see [Performance](#59-performance).
+  `time_limit` bounds the *time*, not the memory: it is checked between
+  iterations and does not stop the allocation that overruns.
+- **A search that has not finished.** A frozen kernel that is still consuming
+  CPU is not a crash. Set `time_limit` and check
+  [`termination_reason`](#5-time-windows-this-fork).
+
+If a check crashes on a current installation, that is a new defect — please
+[open an issue](https://github.com/Ebisaresu/cspy_for_TW/issues) with the
+output of the script above. Running your own code as `python3 your_script.py`
+from a terminal rather than in Jupyter is worth doing first: the same crash
+prints something diagnostic there (`Segmentation fault`, a `faulthandler`
+traceback, or a Windows access violation code) instead of only restarting the
+kernel.
 
 ## 4. Quick start — Instance A
 

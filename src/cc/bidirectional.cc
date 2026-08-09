@@ -31,6 +31,22 @@ BiDirectional::BiDirectional(
           sink_id)),
       fwd_search_ptr_(std::make_unique<bidirectional::Search>(FWD)),
       bwd_search_ptr_(std::make_unique<bidirectional::Search>(BWD)) {
+  // The search indexes both bounds by the critical resource, which defaults
+  // to 0, so a problem with no resources is an out-of-bounds read on the very
+  // first label. Mismatched lengths are the same thing one resource further
+  // along: the feasibility loop is bounded by the label's resource vector and
+  // reads whichever bound is shorter past its end.
+  if (max_res_in.empty()) {
+    throw std::invalid_argument(
+        "[BiDirectional] max_res and min_res must have at least one entry"
+        " (the critical resource)");
+  }
+  if (max_res_in.size() != min_res_in.size()) {
+    throw std::invalid_argument(
+        "[BiDirectional] max_res and min_res must have the same length; got " +
+        std::to_string(max_res_in.size()) + " and " +
+        std::to_string(min_res_in.size()));
+  }
 #if SPDLOG_ACTIVE_LEVEL == SPDLOG_LEVEL_DEBUG
   // Needed as not printed otherwise
   spdlog::set_level(spdlog::level::debug);
@@ -42,15 +58,35 @@ BiDirectional::BiDirectional(
   // spdlog::set_pattern("%+"); // back to default format
 }
 
+/**
+ * `best_label_` is only allocated by `init`, which `run` calls. Every result
+ * getter below therefore has to cope with being called first: dereferencing
+ * the null shared pointer is undefined behaviour, and in practice it takes
+ * the whole process down. Inside a Jupyter kernel that surfaces as "the
+ * kernel appears to have died" with no Python traceback at all, which tells
+ * the user nothing about what they did wrong.
+ */
+void BiDirectional::checkHasRun(const char* getter) const {
+  if (!best_label_) {
+    throw std::runtime_error(
+        std::string("[BiDirectional] ") + getter +
+        " was called before run(). Call run() first; there is no result to"
+        " report yet.");
+  }
+}
+
 std::vector<int> BiDirectional::getPath() const {
+  checkHasRun("getPath");
   return best_label_->partial_path;
 }
 
 std::vector<double> BiDirectional::getConsumedResources() const {
+  checkHasRun("getConsumedResources");
   return best_label_->resource_consumption;
 }
 
 double BiDirectional::getTotalCost() const {
+  checkHasRun("getTotalCost");
   return best_label_->weight;
 }
 
@@ -71,10 +107,16 @@ std::string BiDirectional::getTerminationReason() const {
 }
 
 void BiDirectional::checkCriticalRes() const {
+  checkHasRun("checkCriticalRes");
   const std::vector<double>& res      = best_label_->resource_consumption;
   double                     min_diff = std::numeric_limits<double>::infinity();
   int                        min_r    = 0;
-  for (int r = 0; r < res.size(); r++) {
+  // `res` comes from a label, whose length is whatever the resource extension
+  // produced; `max_res` is the user's. They agree for the built-in additive
+  // REFs, but a custom REF_callback returning a longer vector would otherwise
+  // walk off the end of `max_res` here.
+  const int n = static_cast<int>(std::min(res.size(), max_res.size()));
+  for (int r = 0; r < n; r++) {
     const double& diff = max_res[r] - res[r];
     if (diff < min_diff) {
       min_diff = diff;
@@ -143,6 +185,19 @@ void BiDirectional::setRequiredNodes(
 }
 
 void BiDirectional::run() {
+  // `run` is single-shot per object: `init` does not rebuild the search
+  // containers, so a second call walks the leftovers of the first. That was
+  // documented as "returns a degenerate result", but it is worse than that --
+  // with direction = backward the joining step reaches processBwdLabel with a
+  // default-constructed label, whose params_ptr is null and whose resource
+  // vector is empty, and the process dies. Re-executing a notebook cell is
+  // enough to hit it, so refuse the second call and say what to do instead.
+  if (termination_reason_ != TerminationReason::NOT_RUN) {
+    throw std::runtime_error(
+        "[BiDirectional] run() has already been called on this object. The"
+        " search state is not rebuilt between calls; construct a new"
+        " BiDirectional for every run.");
+  }
   if (params_ptr_->require_all_visits) {
     if (params_ptr_->direction != FWD) {
       throw std::invalid_argument(

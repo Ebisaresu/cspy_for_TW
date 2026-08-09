@@ -54,8 +54,13 @@ def check(
             _check_REF(REF_callback)
         except Exception as e:
             errors.append(e)
-    # Select checks to perform based on the input provided
-    if max_res and min_res and direction:
+    # Select checks to perform based on the input provided.
+    # Tested with `is not None` rather than for truthiness: an empty list is
+    # falsy, so `max_res=[]` used to select the last branch and skip every
+    # resource check there is. The engine then indexed the empty vectors by
+    # the critical resource and the process died -- an omission that silently
+    # disabled validation instead of reporting it.
+    if max_res is not None and min_res is not None and direction is not None:
         check_funcs = [
             _check_res,
             _check_direction,
@@ -63,7 +68,7 @@ def check(
             _check_edge_attr,
             _check_path,
         ]
-    elif max_res and min_res:
+    elif max_res is not None and min_res is not None:
         check_funcs = [_check_res, _check_graph_attr, _check_edge_attr, _check_path]
     else:
         check_funcs = [_check_path]
@@ -76,6 +81,36 @@ def check(
     if errors:
         # if any check has failed raise an exception with all the errors
         raise Exception("\n".join("{}".format(item) for item in errors))
+
+
+def check_critical_res(critical_res, max_res, algorithm=None):
+    """Check that ``critical_res`` is a usable index into ``max_res``.
+
+    The C++ engine uses ``critical_res`` to subscript ``max_res``, ``min_res``
+    and every label's resource vector without bounds checking, so an
+    out-of-range value is not a wrong answer but an out-of-bounds access: it
+    corrupts the heap and takes the interpreter down with it (inside a Jupyter
+    kernel, "the kernel appears to have died", with no traceback to explain
+    it). ``BiDirectional.__init__`` therefore validates it before the value
+    can reach the engine. ``None`` means "not given" and selects the default,
+    index 0.
+
+    :raises: Exception if ``critical_res`` is not an int in
+        ``[0, len(max_res))``.
+    """
+    if critical_res is None:
+        return
+    # bool is a subclass of int, and True would silently mean index 1.
+    if isinstance(critical_res, bool) or not isinstance(critical_res, int):
+        raise Exception(
+            "critical_res must be an int, got {!r}".format(critical_res)
+        )
+    n_res = len(max_res) if max_res is not None else 0
+    if not 0 <= critical_res < n_res:
+        raise Exception(
+            "critical_res = {} is out of range; it must be an index into"
+            " max_res, i.e. in [0, {})".format(critical_res, n_res)
+        )
 
 
 #: Valid policies for :func:`check_native_windows` / native node windows
@@ -668,6 +703,14 @@ def check_time_limit_breached(start_time: float, time_limit: Union[int, None]) -
 
 def _check_res(G, max_res, min_res, direction, algorithm):
     if isinstance(max_res, list) and isinstance(min_res, list):
+        # The engine indexes both by the critical resource, which defaults to
+        # 0, so a problem with no resources at all is an out-of-bounds read on
+        # the first label rather than a degenerate but valid instance.
+        if not max_res:
+            raise TypeError(
+                "max_res and min_res must have at least one entry (the"
+                " critical resource); got empty lists"
+            )
         if len(max_res) == len(min_res):
             if not (
                 (

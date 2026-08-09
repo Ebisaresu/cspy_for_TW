@@ -1,8 +1,9 @@
 #ifndef SRC_CC_BIDIRECTIONAL_H__
 #define SRC_CC_BIDIRECTIONAL_H__
 
-#include <chrono> // timing (e.g. time_point)
-#include <string> // string (termination reason)
+#include <chrono>    // timing (e.g. time_point)
+#include <stdexcept> // invalid_argument (setCriticalRes range check)
+#include <string>    // string (termination reason)
 #include <vector>
 
 // cspy
@@ -124,9 +125,8 @@ class BiDirectional {
    *
    * Two caveats:
    *   - `run` is single-shot per object: the search containers are not reset
-   *     between calls, so a second call to `run` on the same object returns a
-   *     degenerate result and its termination reason is meaningless. Build a
-   *     fresh object for every run.
+   *     between calls, so a second call to `run` on the same object throws
+   *     std::runtime_error. Build a fresh object for every run.
    *   - The time limit is checked before the threshold, so when both stop
    *     conditions hold at the same iteration the reason is
    *     "time_limit_reached". For the same reason a search whose last
@@ -139,6 +139,13 @@ class BiDirectional {
   /// (difference between final resource and maximum) and prints a message if it
   /// doesn't match to the one chosen in Params.
   void checkCriticalRes() const;
+  /**
+   * Throw std::runtime_error if `run` has not been called yet.
+   *
+   * The result getters read `best_label_`, which stays null until `init`
+   * allocates it. @param[in] getter, name used in the message.
+   */
+  void checkHasRun(const char* getter) const;
 
   /* Setters: wrappers. @see bidirectional::Params */
 
@@ -178,8 +185,22 @@ class BiDirectional {
   void setFindCriticalRes(const bool& find_critical_res_in) {
     params_ptr_->setFindCriticalRes(find_critical_res_in);
   }
-  /// @see bidirectional::Params
+  /**
+   * @see bidirectional::Params
+   *
+   * The index is validated here rather than trusted: `critical_res` is used
+   * unchecked to subscript `max_res`, `min_res` and every label's resource
+   * vector all over the search, so an out-of-range value corrupts memory
+   * instead of producing a wrong answer.
+   */
   void setCriticalRes(const int& critical_res_in) {
+    if (critical_res_in < 0 ||
+        critical_res_in >= static_cast<int>(max_res.size())) {
+      throw std::invalid_argument(
+          "[BiDirectional] critical_res = " + std::to_string(critical_res_in) +
+          " is out of range; it must be an index into max_res, i.e. in [0, " +
+          std::to_string(max_res.size()) + ")");
+    }
     params_ptr_->setCriticalRes(critical_res_in);
   }
   /// Pass python callback for label extensions.

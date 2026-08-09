@@ -5,7 +5,115 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [unreleased]
+## [v1.1.1]
+
+### Fixed
+
+ - **No call through the documented Python interface can kill the interpreter
+   any more.** Eight ways to do so were found and closed. Each one used to end
+   the process outright -- an out-of-bounds access, a null dereference or a
+   loop that never terminated -- which in a Jupyter notebook surfaces only as
+   *"The kernel appears to have died. It will restart automatically."*, with
+   no traceback naming the mistake. All eight now raise an ordinary Python
+   exception saying what was wrong. Regression tests are in
+   `test/python/tests_no_hard_crash.py`.
+
+   - Reading `path`, `total_cost`, `consumed_resources` or calling
+     `check_critical_res()` **before `run()`** dereferenced a null
+     `best_label_`, which `init()` only allocates once `run()` is under way.
+     All four now raise `RuntimeError`, in the engine
+     (`BiDirectional::checkHasRun`) as well as in the wrapper, so bypassing
+     the Python layer is no longer a way around the check.
+     `termination_reason` was already safe and still answers `None`.
+   - Calling **`run()` twice on the same object** with
+     `direction='backward'` reached `processBwdLabel` with a
+     default-constructed label -- null `params_ptr`, empty resource vector --
+     and segfaulted. `run` was already documented as single-shot; it now
+     enforces that and raises `RuntimeError` on the second call instead of
+     returning a degenerate result. Re-executing a notebook cell was enough
+     to trigger the crash. `processBwdLabel` also returns the dummy label
+     rather than indexing through it.
+   - An out-of-range **`critical_res`** was never validated, and it indexes
+     `max_res`, `min_res` and every label's resource vector: an out-of-bounds
+     *write*, so the process died at an unpredictable later point (SIGSEGV or
+     SIGABRT from the corrupted heap, varying between runs of the same
+     input). Now rejected by `cspy.checking.check_critical_res` and by
+     `BiDirectional::setCriticalRes`. `True` is rejected too: `bool` is a
+     subclass of `int` and would have silently selected index 1.
+   - A custom **`REF_callback` returning the wrong number of resources**.
+     Everything downstream indexes the returned vector positionally against
+     `max_res`. A longer vector over-read `max_res`/`min_res`; an empty one
+     segfaulted; and a short one was worse than either -- the feasibility
+     loop is bounded by the vector's own length, so the critical resource
+     stopped being checked, the search never terminated, and labels were
+     allocated until the process was killed. `Label::extend` and
+     `mergeLabels` now check the length and raise.
+   - `DiGraph::getNodeIdFromUserId` dereferenced `vertices.end()` for an
+     unknown node id and fed the garbage it read to
+     `lemon::SmartDigraph::nodeFromId`; `addNodes` wrote past `vertices` when
+     given more nodes than the constructor was told about, and left
+     `source`/`sink` holding indeterminate ids when the graph contained
+     neither. All three now throw `std::invalid_argument`.
+   - An **empty `max_res` / `min_res`**, or two of different lengths.
+     `cspy.checking.check` chose which validations to run by testing the two
+     lists for truthiness, and an empty list is falsy -- so `max_res=[]`
+     skipped every resource check there is and reached the engine, which
+     indexes both by `critical_res` on the first label. The dispatch now
+     tests `is not None`, `_check_res` rejects empty lists, and the
+     `BiDirectional` C++ constructor rejects both an empty `max_res` and a
+     length mismatch.
+   - A user **`REF_callback` outliving the wrapper that held it**. The engine
+     stores the callback as a raw pointer and does not own it, and the only
+     reference was kept on the Python `BiDirectional` wrapper -- not on the
+     C++ proxy whose lifetime actually matters. Extracting
+     `alg.bidirectional_cpp` and dropping `alg` collected the SWIG director
+     object while the labelling loop was still calling through its pointer.
+     The callback is now also tied to the proxy
+     (`_ref_callback_keepalive`), as the native window REF already was.
+   - `labelling::halfwayCheck` compared paths with the three-iterator
+     `std::equal`, reading `l.partial_path.size()` elements out of a
+     `partial_path` that may be shorter. Now uses the four-iterator overload,
+     which compares the lengths first.
+
+ - **The extension module now carries the interpreter's ABI tag.**
+   `swig_add_library` produced a bare `_pyBiDirectionalCpp.so` /
+   `_pyBiDirectionalCpp.pyd`; it is now
+   `_pyBiDirectionalCpp.cpython-312-x86_64-linux-gnu.so`,
+   `_pyBiDirectionalCpp.cp312-win_amd64.pyd` and so on, taken from
+   `sysconfig.get_config_var('EXT_SUFFIX')` of the Python being built against.
+
+   The bare suffix is in importlib's `EXTENSION_SUFFIXES` for *every* CPython,
+   so a module built against one version was silently loaded by another
+   instead of being skipped. On Windows that is fatal rather than merely
+   wrong: `src/cc/python/CMakeLists.txt` links the module against a specific
+   `pythonXY.lib`, so the `.pyd` imports `python310.dll`, and loading it into
+   a `python312.exe` pulls a second CPython runtime into the process. The
+   module then initialises against an uninitialised interpreter state and the
+   process dies with an access violation and no traceback — in Jupyter, "the
+   kernel appears to have died". This is reachable whenever one environment's
+   `site-packages` is visible to another interpreter (a `--user` install, a
+   `PYTHONPATH` entry, a copied environment), which is easy to arrange by
+   accident and gives no warning. With the tag present the same situation is
+   an ordinary `ImportError` naming the module.
+ - `DiGraph::all_resources_positive` was read uninitialised for a graph with
+   no arcs, and `addEdge` assigned rather than accumulated it, so the last
+   arc added decided it on its own and a negative resource on any earlier arc
+   went unnoticed. It now starts `true` and accumulates. It gates only a
+   warning about `elementary`, so the visible effect is limited to that
+   warning.
+ - `operator<<(std::ostream&, const Label&)` fell off the end of a
+   value-returning function without returning the stream (undefined
+   behaviour). It now returns `os`.
+ - `Params::~Params` read `ref_callback = nullptr; delete ref_callback;`,
+   which deletes a null pointer and so already did nothing. It is now
+   `= default` with the ownership rule spelled out, because "fixing" it into
+   a real `delete` would double-free the SWIG director object that Python is
+   still holding.
+ - `BiDirectional::checkCriticalRes` iterated over the label's resource
+   vector while indexing `max_res`, which a custom `REF_callback` can make
+   the longer of the two.
+
+## [v1.1.0]
 
 ### Added
 
@@ -65,10 +173,7 @@ default behaviour was verified to be byte-identical to the previous build over
 
  - `BiDirectional::run` now resets the internal early-termination flag at the
    start of each call, so a stale flag from a previous call can no longer
-   leak into a later run's post-processing. Note that `run` remains
-   single-shot per object (the search containers are not rebuilt, so a second
-   call returns a degenerate result and a meaningless termination reason);
-   this is now documented on `termination_reason` and in the C++ header.
+   leak into a later run's post-processing.
  - `BiDirectional` now keeps a reference to a user supplied `REF_callback`.
    The C++ side stores only a raw pointer, so passing a temporary
    (`BiDirectional(..., REF_callback=MyCallback())`) used to let the object be
