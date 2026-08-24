@@ -69,6 +69,24 @@ instance | both | fwd | best | boost
 24 | 240 | 291 | 240 | 330
 average | 82.38 | 132.25 | 77.875 | 228.42
 
+### Python drivers (`python/`)
+
+Three self-contained scripts, all runnable against an installed `cspy_tw`
+wheel (no build tree needed):
+
+- `python/bench_beasley.py` — runs this Beasley–Christofides set through the
+  SWIG proxy with the same loading conventions as `test/cc/test_benchmarks.cc`
+  and asserts every cost against `results.txt` (exit code says whether all 24
+  matched). Non-elementary by default, which is the natural mode for these
+  instances.
+- `python/bench_labelling.py` — fixed-seed TSPTW (`require_all_visits`) and
+  pricing-shaped instances; prints paths as well as times so two builds can be
+  diffed for behavioural equivalence.
+- `python/bench_tw_scaling.py` — ESPPRC with native time windows and no
+  mandatory visits, one `(n, hops, window-regime)` point per invocation, plus
+  a `sanity` mode that asserts the README quick-start answer through the same
+  hand-wired code path.
+
 ### Replicate results
 
 ```bash
