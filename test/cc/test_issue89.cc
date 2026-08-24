@@ -16,7 +16,12 @@ class TestIssue89 : public ::testing::Test {
   const int                      number_edges    = 25;
   const int                      source_id       = 9;
   const int                      sink_id         = 8;
-  const std::vector<double>      max_res         = {10.0, 100, 0};
+  // Two resources, like every edge's res_cost below and like final_res.
+  // max_res used to carry a third entry ({10.0, 100, 0}); nothing ever read
+  // it (the feasibility loop is bounded by the label's own resource count),
+  // and the BiDirectional constructor now enforces the documented
+  // equal-length contract, which is how the stray entry was noticed.
+  const std::vector<double>      max_res         = {10.0, 100};
   const std::vector<double>      min_res         = {0.0, 1.0};
   std::unique_ptr<BiDirectional> bidirectional;
   // Expected non-elementary solution

@@ -135,8 +135,26 @@ class Label {
   bidirectional::Vertex vertex               = {-1, -1};
   std::vector<double>   resource_consumption = {};
   std::vector<int>      partial_path         = {};
-  /// Set of unreachable nodes. This is only used in the elementary case.
-  std::set<int> unreachable_nodes = {};
+  /**
+   * Unreachable nodes, held as a SORTED vector of user ids. Only used in the
+   * elementary case.
+   *
+   * This was a std::set<int>. The operations it serves are: rebuild from the
+   * partial path at construction, one membership test per extension, one
+   * ordered insert per infeasible extension, and -- by far the hottest -- a
+   * subset test (std::includes) against another label's list inside the
+   * dominance check, run once per label pair. A sorted vector serves all of
+   * those with contiguous memory: std::includes walks two arrays instead of
+   * chasing red-black tree nodes (which was ~30% of the whole search on a
+   * pricing-shaped instance), copying a label copies one buffer instead of
+   * rebuilding a tree node by node, and the ordered insert's O(n) shift is
+   * cheap at these sizes (a handful to a few dozen ids).
+   *
+   * Invariant: sorted ascending, no duplicates. Everything that writes it
+   * (the constructors and Label::extend) maintains this; std::includes and
+   * std::binary_search rely on it.
+   */
+  std::vector<int> unreachable_nodes = {};
   /**
    * Bit set over the required nodes visited by `partial_path`.
    * Bit `params_ptr->required_bit_by_user_id[u]` is set when user id `u`
@@ -188,8 +206,21 @@ class Label {
       bidirectional::Params*       params,
       const Label&                 parent);
 
-  /// default destructor
-  ~Label(){};
+  /* Special members.
+   *
+   * All five are spelled out because the user-declared destructor used to be
+   * `~Label(){};`, which suppresses the implicit move operations: every heap
+   * sift in the unprocessed-label heap, every erase-shift in the efficient
+   * label vectors and every vector reallocation then deep-copied the two
+   * vectors and the unreachable_nodes set of every label it touched. The
+   * moves are noexcept (every member's move is), so vector reallocation
+   * actually uses them.
+   */
+  Label(const Label&)            = default;
+  Label(Label&&) noexcept        = default;
+  Label& operator=(const Label&) = default;
+  Label& operator=(Label&&) noexcept = default;
+  ~Label()                       = default;
 
   /**
    * Generate new label extensions from the current label and return only if
@@ -350,7 +381,6 @@ class Label {
 
   std::string getString() const;
   // operator overloads
-  Label&               operator=(const Label& other) = default;
   friend bool          operator<(const Label& label1, const Label& label2);
   friend bool          operator>(const Label& label1, const Label& label2);
   friend std::ostream& operator<<(std::ostream& os, const Label& label);

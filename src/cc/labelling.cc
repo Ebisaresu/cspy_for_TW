@@ -25,8 +25,14 @@ Label::Label(
       partial_path(partial_path_in),
       params_ptr(params_ptr_in) {
   if (params_ptr->elementary) {
-    // Insert elements of partial_path
-    unreachable_nodes.insert(partial_path.cbegin(), partial_path.cend());
+    // The nodes of the partial path, sorted (see the member's invariant).
+    // A partial path holds no repeated nodes in the elementary case, but
+    // nothing here needs to assume that: duplicates are removed.
+    unreachable_nodes.assign(partial_path.cbegin(), partial_path.cend());
+    std::sort(unreachable_nodes.begin(), unreachable_nodes.end());
+    unreachable_nodes.erase(
+        std::unique(unreachable_nodes.begin(), unreachable_nodes.end()),
+        unreachable_nodes.end());
   }
   if (params_ptr->require_all_visits) {
     // Build the bit set of required nodes visited by the partial path.
@@ -65,8 +71,12 @@ Label::Label(
       partial_path(partial_path_in),
       params_ptr(params_ptr_in) {
   if (params_ptr->elementary) {
-    // Insert elements of partial_path
-    unreachable_nodes.insert(partial_path.cbegin(), partial_path.cend());
+    // See the other constructor: sorted, duplicates removed.
+    unreachable_nodes.assign(partial_path.cbegin(), partial_path.cend());
+    std::sort(unreachable_nodes.begin(), unreachable_nodes.end());
+    unreachable_nodes.erase(
+        std::unique(unreachable_nodes.begin(), unreachable_nodes.end()),
+        unreachable_nodes.end());
   }
   if (params_ptr->require_all_visits) {
     // The partial path is the one of `parent` followed by `vertex_in`, so
@@ -161,8 +171,14 @@ Label Label::extend(
     // Update current labels unreachable_nodes
     if (params_ptr->elementary) {
       // Push new node (direction doesn't matter here as edges have been
-      // reversed for backward extensions)
-      unreachable_nodes.insert(new_node.user_id);
+      // reversed for backward extensions). Ordered insert so the sorted
+      // no-duplicates invariant of the member holds.
+      const auto pos = std::lower_bound(
+          unreachable_nodes.begin(),
+          unreachable_nodes.end(),
+          new_node.user_id);
+      if (pos == unreachable_nodes.end() || *pos != new_node.user_id)
+        unreachable_nodes.insert(pos, new_node.user_id);
     }
   }
   return Label();
@@ -285,6 +301,18 @@ bool Label::checkSameFeasibleExtension(const Label& other) const {
 bool Label::checkDominance(
     const Label&                     other,
     const bidirectional::Directions& direction) const {
+  // Mandatory visits: a label may only dominate a label visiting exactly the
+  // same required nodes, so with differing masks the answer is false no
+  // matter what the weight and the resources say. The test is hoisted above
+  // them because it is one word-compare that rejects almost every pair: the
+  // dominance loop is quadratic in the number of labels held at a vertex,
+  // and in a TSPTW instance most label pairs at a vertex differ in the mask.
+  // checkSameFeasibleExtension re-checks it further down for the pairs that
+  // get that far; that repeat is deliberate, so that neither place depends
+  // on the other's ordering for correctness.
+  if (params_ptr->require_all_visits && !checkSameRequiredVisits(other)) {
+    return false;
+  }
   const int& resource_size = resource_consumption.size();
   const int& c_res         = params_ptr->critical_res;
 
@@ -381,14 +409,14 @@ bool operator==(const Label& label1, const Label& label2) {
     return false;
   if (label1.weight != label2.weight)
     return false;
+  // Resources before paths: the resource vector has one entry per resource
+  // (typically two), while the paths grow with the search depth, so this
+  // order settles the frequent not-equal case without touching the paths.
+  // The result is unchanged; every field is still compared on equality.
+  if (label1.resource_consumption != label2.resource_consumption)
+    return false;
   if (label1.partial_path != label2.partial_path)
     return false;
-  /// Check every resource for inequality
-  for (int i = 0; i < label1.resource_consumption.size(); i++) {
-    if (label1.resource_consumption[i] != label2.resource_consumption[i]) {
-      return false;
-    }
-  }
   return true;
 }
 
@@ -422,10 +450,23 @@ bool runDominanceEff(
     const bidirectional::Directions& direction,
     const bool&                      elementary) {
   bool dominated = false;
+  const bool require_all_visits =
+      label.params_ptr != nullptr && label.params_ptr->require_all_visits;
   for (auto it = efficient_labels_ptr->begin();
        it != efficient_labels_ptr->end();) {
     bool         deleted = false;
     const Label& label2  = *it;
+    // With mandatory visits, labels with differing required-visit masks can
+    // neither dominate each other (checkDominance rejects them) nor be equal
+    // (equal partial paths imply equal masks), so the whole body below is a
+    // no-op for such a pair. One word-compare here replaces an operator==
+    // (which walks the partial paths) and two checkDominance calls, and in a
+    // TSPTW instance almost every pair takes this exit.
+    if (require_all_visits &&
+        label.required_visited_mask != label2.required_visited_mask) {
+      ++it;
+      continue;
+    }
     if (label != label2) {
       // check if label dominates label2
       if (label.checkDominance(label2, direction)) {
@@ -455,8 +496,9 @@ Label getNextLabel(
   else
     std::pop_heap(labels_ptr->begin(), labels_ptr->end());
 
-  // Get next label as the back of the heap
-  Label next_label = labels_ptr->back();
+  // Get next label as the back of the heap. Moved out, not copied: the slot
+  // is popped on the next line, so its contents have no further reader.
+  Label next_label = std::move(labels_ptr->back());
   labels_ptr->pop_back();
   return next_label;
 }

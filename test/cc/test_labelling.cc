@@ -37,31 +37,31 @@ TEST_F(TestLabelling, testDominanceElementary) {
   params_ptr->elementary = true;
   // L1
   Label label(weight, node, res, path, params_ptr.get());
-  label.unreachable_nodes = std::set<int>({1, 2, 3});
+  label.unreachable_nodes = std::vector<int>({1, 2, 3});
   // L2
   std::vector<double> res2 = {6.0, 4.0};
   Label               label2(weight, node, res2, path, params_ptr.get());
   // Unrelated U2
-  label2.unreachable_nodes = std::set<int>({4, 5, 6});
+  label2.unreachable_nodes = std::vector<int>({4, 5, 6});
 
   // L2 dominates (due to resources)
   ASSERT_FALSE(label.checkDominance(label2, bidirectional::FWD));
   ASSERT_FALSE(label2.checkDominance(label, bidirectional::FWD));
 
   // Make U2 \subset U1
-  label2.unreachable_nodes = std::set<int>({1, 2});
+  label2.unreachable_nodes = std::vector<int>({1, 2});
   // L2 now dominates L1 now as U2 \subset U1
   ASSERT_FALSE(label.checkDominance(label2, bidirectional::FWD));
   ASSERT_TRUE(label2.checkDominance(label, bidirectional::FWD));
 
   // Make U1 \subset U2
-  label2.unreachable_nodes = std::set<int>({1, 2, 3, 4});
+  label2.unreachable_nodes = std::vector<int>({1, 2, 3, 4});
   // Neither dominate. As U2 is not a \subset U1
   ASSERT_FALSE(label.checkDominance(label2, bidirectional::FWD));
   ASSERT_FALSE(label2.checkDominance(label, bidirectional::FWD));
 
   // Make U1 = U2
-  label2.unreachable_nodes = std::set<int>({1, 2, 3});
+  label2.unreachable_nodes = std::vector<int>({1, 2, 3});
   // L2 dominates as tie breaker because of resources. If we don't check for
   // equality in checkDominance, neither would dominate.
   ASSERT_FALSE(label.checkDominance(label2, bidirectional::FWD));
@@ -73,11 +73,11 @@ TEST_F(TestLabelling, testDominanceElementaryIssue94) {
   // L1
   std::vector<int> path1{0, 2, 3};
   Label            label(6.0, node, {2.0}, path1, params_ptr.get());
-  label.unreachable_nodes = std::set<int>({0, 2, 3});
+  label.unreachable_nodes = std::vector<int>({0, 2, 3});
   // L2
   std::vector<int> path2{0, 1, 3};
   Label            label2(11.0, node, {2.0}, path2, params_ptr.get());
-  label2.unreachable_nodes = std::set<int>({0, 1, 3});
+  label2.unreachable_nodes = std::vector<int>({0, 1, 3});
 
   ASSERT_FALSE(label2.checkDominance(label, bidirectional::FWD));
   ASSERT_FALSE(label.checkDominance(label2, bidirectional::FWD));

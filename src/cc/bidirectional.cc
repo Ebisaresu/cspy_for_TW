@@ -312,6 +312,7 @@ void BiDirectional::initSearch(const Directions& direction) {
   // Allocate memory
   search_ptr->lower_bound_weight->resize(graph_ptr_->number_vertices, 0.0);
   search_ptr->efficient_labels.resize(graph_ptr_->number_vertices);
+  search_ptr->efficient_label_counts.resize(graph_ptr_->number_vertices, 0);
   search_ptr->best_labels.resize(graph_ptr_->number_vertices, nullptr);
 }
 
@@ -602,8 +603,10 @@ void BiDirectional::extendSingleLabel(
       // When elementary, check if vertex already seen / unreachable and if the
       // next node is suitable (2-cycles are not allowed!)
       (params_ptr_->elementary &&
-       label->unreachable_nodes.find(adj_vertex.vertex.user_id) ==
-           label->unreachable_nodes.end())) {
+       !std::binary_search(
+           label->unreachable_nodes.begin(),
+           label->unreachable_nodes.end(),
+           adj_vertex.vertex.user_id))) {
     if (label->partial_path.size() <= 1 ||
         (label->partial_path.size() > 1 &&
          label->checkPathExtension(adj_vertex.vertex.user_id))) {
@@ -628,23 +631,38 @@ void BiDirectional::updateEfficientLabels(
   Search* search_ptr = getSearchPtr(direction);
   // const ref vertex index
   const int& lemon_id = candidate_label.vertex.lemon_id;
-  // ref efficient_labels_ for a given vertex
+  // The candidate only has to be compared against the labels in its own
+  // group: a duplicate has the same partial path, hence the same mask and
+  // the same key, and dominance under require_all_visits demands equal
+  // masks. Labels in other groups could not be touched by either scan, so
+  // they are not visited at all. Without the mandatory-visit mode every
+  // label carries key 0 and this group IS the whole vertex, i.e. the
+  // behaviour this function always had.
   std::vector<labelling::Label>& efficient_labels_vertex =
-      search_ptr->efficient_labels[lemon_id];
+      search_ptr->efficient_labels[lemon_id]
+                                  [Search::efficientLabelKey(candidate_label)];
 
   if (std::find(
           efficient_labels_vertex.begin(),
           efficient_labels_vertex.end(),
           candidate_label) == efficient_labels_vertex.end()) {
     ++search_ptr->generated_count;
-    // If there already exists labels for the given vertex
-    if (efficient_labels_vertex.size() > 1) {
+    // If there already exists labels for the given vertex. The count is over
+    // the whole vertex, not the group: it preserves the pre-existing rule of
+    // this function (dominance runs from the second label held at the vertex
+    // onwards), which the grouping must not change.
+    if (search_ptr->efficient_label_counts[lemon_id] > 1) {
       // check if new_label is dominated by any other comparable label
-      const bool dominated = runDominanceEff(
+      const std::size_t before = efficient_labels_vertex.size();
+      const bool        dominated = runDominanceEff(
           &efficient_labels_vertex,
           candidate_label,
           direction,
           params_ptr_->elementary);
+      // runDominanceEff erases the labels the candidate dominates, so the
+      // per-vertex total has to follow.
+      search_ptr->efficient_label_counts[lemon_id] -=
+          static_cast<int>(before - efficient_labels_vertex.size());
       if (!dominated && !checkPrimalBound(direction, candidate_label)) {
         // add candidate_label to efficient_labels and unprocessed heap
         search_ptr->pushEfficientLabel(lemon_id, candidate_label);
@@ -884,9 +902,13 @@ void BiDirectional::joinLabels() {
     if (fwd_search_ptr_->best_labels[n] &&
         fwd_search_ptr_->best_labels[n]->weight + *bwd_min <= UB &&
         n != graph_ptr_->sink.lemon_id) {
-      // for each forward label at n
-      for (auto fwd_iter = fwd_search_ptr_->efficient_labels[n].cbegin();
-           fwd_iter != fwd_search_ptr_->efficient_labels[n].cend();
+      // for each forward label at n. The labels are grouped by mask key;
+      // joining runs only without require_all_visits, where there is exactly
+      // one group, so this iterates the same labels in the same order as the
+      // flat vector it used to be.
+      for (const auto& fwd_group : fwd_search_ptr_->efficient_labels[n])
+      for (auto fwd_iter = fwd_group.second.cbegin();
+           fwd_iter != fwd_group.second.cend();
            ++fwd_iter) {
         const labelling::Label& fwd_label = *fwd_iter;
         // if bound check fwd_label
@@ -905,10 +927,12 @@ void BiDirectional::joinLabels() {
                 (fwd_label.weight + edge_weight +
                      bwd_search_ptr_->best_labels[m]->weight <=
                  UB)) {
-              // for each backward label at m
-              for (auto bwd_iter =
-                       bwd_search_ptr_->efficient_labels[m].cbegin();
-                   bwd_iter != bwd_search_ptr_->efficient_labels[m].cend();
+              // for each backward label at m (single group; see the
+              // forward loop above)
+              for (const auto& bwd_group :
+                   bwd_search_ptr_->efficient_labels[m])
+              for (auto bwd_iter = bwd_group.second.cbegin();
+                   bwd_iter != bwd_group.second.cend();
                    ++bwd_iter) {
                 const labelling::Label& bwd_label = *bwd_iter;
                 // TODO: should suffice with strict > HF, but Beasley 10

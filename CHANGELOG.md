@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [unreleased]
+
+### Changed
+
+ - **The labelling core is much faster; no result changes.** Verified by a
+   sweep of 120 random instances across all five dominance modes (mandatory
+   visits + windows, windows only, plain elementary, two-cycle elimination,
+   and `direction="both"`), byte-identical paths and costs against the
+   previous build, plus the full Python (188) and C++ (61) test suites.
+   Measured effects (`benchmarks/python/bench_labelling.py`): exact TSPTW via
+   `require_all_visits` n=18 drops from 181 s to 0.42 s (432x) and n=20
+   becomes practical at ~2.3 s; a pricing-shaped ESPPRC is 2.3x faster.
+   Three changes, in decreasing order of effect:
+
+   - Labels at a vertex are grouped by a one-word key derived from the
+     required-visit mask. Under `require_all_visits` a label can only
+     dominate, be dominated by, or equal a label with the same mask, so the
+     quadratic dominance-and-duplicate pass now never visits the pairs that
+     could not interact. Without the mandatory-visit mode every label lands
+     in one group and the pass visits exactly what it always visited. The
+     mask test is also hoisted to the top of `Label::checkDominance`, so the
+     rare cross-group comparisons that still happen (via `fullDominance`)
+     settle on one word-compare.
+   - `Label::unreachable_nodes` is a sorted `std::vector<int>` instead of a
+     `std::set<int>`. The subset test inside every elementary dominance check
+     (`std::includes`) walks two contiguous arrays instead of chasing
+     red-black-tree nodes -- tree iteration alone was ~30% of a
+     pricing-shaped run -- and copying a label copies one buffer instead of
+     rebuilding a tree.
+   - `Label` is movable. The user-declared `~Label(){}` suppressed the
+     implicit move operations, so every heap sift, erase-shift and vector
+     reallocation deep-copied both vectors and the unreachable set of every
+     label it touched; `labelling::operator==` also compares the two-entry
+     resource vector before the potentially long paths.
+
+### Fixed
+
+ - `test/cc/test_issue89.cc` gave `max_res` a third entry that nothing read
+   ({10.0, 100, 0} against two-resource edges and a two-entry `min_res`);
+   the equal-length contract now enforced by the `BiDirectional` constructor
+   (v1.1.1) rejects it, which is how the stray entry was noticed. The C++
+   suite had not been run since that guard was added: it needs CMake, which
+   the v1.1.1 verification environment lacked.
+
 ## [v1.1.1]
 
 ### Fixed

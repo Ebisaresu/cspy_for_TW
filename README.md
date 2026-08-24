@@ -1062,6 +1062,33 @@ slower than `forward`, so the direction has to be chosen per instance. Full
 tables are in
 [`NATIVE_TW_GUIDE.md`](tsptw_example/NATIVE_TW_GUIDE.md), Section 9.
 
+**The dominance machinery itself** was made substantially faster after the
+figures above were measured, so treat them as lower bounds. Three changes,
+none of which alters any result (verified by a 120-instance sweep across all
+five dominance modes, byte-identical paths and costs against the previous
+build): labels with differing required-visit masks are grouped apart, so the
+quadratic dominance pass at a vertex never visits the pairs that could not
+interact; the unreachable-node list is a sorted vector instead of a
+`std::set`, which turns the subset test inside every dominance check into two
+array walks; and labels are movable, so the label heap and the efficient-label
+stores stop deep-copying on every operation. Measured on this machine
+(`benchmarks/python/bench_labelling.py`, best of 3):
+
+| instance | before | after | factor |
+|---|---:|---:|---:|
+| TSPTW n=14, `require_all_visits` | 0.31 s | 0.017 s | 18x |
+| TSPTW n=16, `require_all_visits` | 4.9 s | 0.080 s | 61x |
+| TSPTW n=18, `require_all_visits` | 181 s | 0.42 s | **432x** |
+| TSPTW n=20, `require_all_visits` | — | 2.3 s | previously impractical |
+| ESPPRC pricing shape, n=16 | 0.33 s | 0.14 s | 2.3x |
+
+The mandatory-visit mode gains the most because its dominance rule is the
+most selective: almost every label pair at a vertex differs in the visited
+set, and the search now discovers that from a one-word key instead of a full
+comparison. Exact TSPTW is practical to roughly twenty customers on an
+ordinary machine now, up from roughly a dozen; the exponential state space
+still wins somewhere in the low twenties (n=25 does not finish in minutes).
+
 ### 5.10 Implementation notes
 
 Upstream, time windows have to be written as a Python `REF_callback`, which is

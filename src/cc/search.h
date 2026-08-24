@@ -1,8 +1,10 @@
 #ifndef SRC_CC_SEARCH_H__
 #define SRC_CC_SEARCH_H__
 
-#include <memory> // unique_ptr
+#include <cstdint>       // uint64_t (efficient label group keys)
+#include <memory>        // unique_ptr
 #include <set>
+#include <unordered_map> // efficient labels grouped by mask key
 #include <vector>
 
 #include "labelling.h"
@@ -37,8 +39,30 @@ class Search {
   /// resetting)
   std::shared_ptr<labelling::Label> intermediate_label;
 
-  /// vector with pareto optimal labels (per node) in each direction
-  std::vector<std::vector<labelling::Label>> efficient_labels;
+  /**
+   * Pareto-optimal labels per node, grouped by a key derived from the
+   * required-visit mask (the mask's first word; 0 whenever the
+   * mandatory-visit mode is off, so everything lands in one group and the
+   * behaviour is exactly the flat vector this used to be).
+   *
+   * The grouping exists because dominance under `require_all_visits` only
+   * relates labels with equal masks: comparing a candidate against every
+   * label at the vertex is quadratic in the label count, and almost every
+   * pair in a TSPTW instance fails the mask test. Grouping turns those
+   * non-pairs into pairs never visited. Masks longer than one word may share
+   * a group (the key is only the first word); that is harmless, because
+   * checkDominance re-checks the full mask.
+   */
+  std::vector<
+      std::unordered_map<std::uint64_t, std::vector<labelling::Label>>>
+      efficient_labels;
+  /**
+   * Number of labels held in `efficient_labels` per node, across all groups.
+   * Kept because updateEfficientLabels decides whether to run the dominance
+   * pass on the total held at the vertex (its pre-existing behaviour), which
+   * the grouped container no longer answers in O(1).
+   */
+  std::vector<int> efficient_label_counts;
   /// vector with pointer to label with least weight (per node) in each
   /// direction
   std::vector<std::shared_ptr<labelling::Label>> best_labels;
@@ -72,8 +96,15 @@ class Search {
     pushHeap();
   }
 
+  /// Group key of a label: first word of the required-visit mask (0 when the
+  /// mandatory-visit mode is off or the mask is empty).
+  static std::uint64_t efficientLabelKey(const labelling::Label& label) {
+    return label.required_visited_mask.words()[0];
+  }
+
   void pushEfficientLabel(const int& lemon_id, const labelling::Label& label) {
-    efficient_labels[lemon_id].push_back(label);
+    efficient_labels[lemon_id][efficientLabelKey(label)].push_back(label);
+    ++efficient_label_counts[lemon_id];
   }
 
   /// Replace best label
