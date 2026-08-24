@@ -26,8 +26,6 @@ import json, math, random, sys, time
 from networkx import DiGraph
 from cspy_tw import BiDirectional
 
-REPS = int(sys.argv[1]) if len(sys.argv) > 1 else 3
-ONLY = sys.argv[2] if len(sys.argv) > 2 else ""
 
 
 def tsptw(n, seed, slack):
@@ -85,37 +83,44 @@ def join(n, seed, density=0.5):
     return G, mx, mn, dict(direction="both", elementary=True)
 
 
-INSTANCES = []
-for n, slack in [(12, 6.0), (14, 5.0), (16, 5.0), (18, 3.0), (20, 3.0),
-                 (25, 3.0), (30, 3.0), (18, 5.0), (20, 5.0)]:
-    INSTANCES.append(("tsptw_%d_s%g" % (n, slack), tsptw(n, 42 + n, slack)))
-for n, cap in [(14, 6.0), (16, 6.0)]:
-    G, mx, mn, kw = pricing(n, 7 + n)
-    mx[0] = mx[1] = cap
-    INSTANCES.append(("price_%d" % n, (G, mx, mn, kw)))
-G, mx, mn, kw = join(14, 99)
-mx[0] = mx[1] = 6.0
-INSTANCES.append(("join_14", (G, mx, mn, kw)))
+def main():
+    REPS = int(sys.argv[1]) if len(sys.argv) > 1 else 3
+    ONLY = sys.argv[2] if len(sys.argv) > 2 else ""
+    INSTANCES = []
+    for n, slack in [(12, 6.0), (14, 5.0), (16, 5.0), (18, 3.0), (20, 3.0),
+                     (25, 3.0), (30, 3.0), (18, 5.0), (20, 5.0)]:
+        INSTANCES.append(("tsptw_%d_s%g" % (n, slack), tsptw(n, 42 + n, slack)))
+    for n, cap in [(14, 6.0), (16, 6.0)]:
+        G, mx, mn, kw = pricing(n, 7 + n)
+        mx[0] = mx[1] = cap
+        INSTANCES.append(("price_%d" % n, (G, mx, mn, kw)))
+    G, mx, mn, kw = join(14, 99)
+    mx[0] = mx[1] = 6.0
+    INSTANCES.append(("join_14", (G, mx, mn, kw)))
 
-#: Beyond the practical frontier (the state space is exponential in n);
-#: only run when named explicitly, so the default run stays under a minute.
-EXPLICIT_ONLY = ("tsptw_25", "tsptw_30")
+    #: Beyond the practical frontier (the state space is exponential in n);
+    #: only run when named explicitly, so the default run stays under a minute.
+    EXPLICIT_ONLY = ("tsptw_25", "tsptw_30")
 
-for label, (G, mx, mn, kw) in INSTANCES:
-    if ONLY and ONLY not in label:
-        continue
-    if not ONLY and label.startswith(EXPLICIT_ONLY):
-        continue
-    best, result = None, None
-    for _ in range(REPS):
-        alg = BiDirectional(G, mx, mn, **kw)
-        t0 = time.perf_counter()
-        alg.run()
-        dt = time.perf_counter() - t0
-        if best is None or dt < best:
-            best = dt
-        result = (alg.path, alg.total_cost, alg.termination_reason)
-    print(json.dumps({"name": label, "sec": round(best, 4),
-                      "cost": result[1], "reason": result[2],
-                      "path": result[0]}))
-    sys.stdout.flush()
+    for label, (G, mx, mn, kw) in INSTANCES:
+        if ONLY and ONLY not in label:
+            continue
+        if not ONLY and label.startswith(EXPLICIT_ONLY):
+            continue
+        best, result = None, None
+        for _ in range(REPS):
+            alg = BiDirectional(G, mx, mn, **kw)
+            t0 = time.perf_counter()
+            alg.run()
+            dt = time.perf_counter() - t0
+            if best is None or dt < best:
+                best = dt
+            result = (alg.path, alg.total_cost, alg.termination_reason)
+        print(json.dumps({"name": label, "sec": round(best, 4),
+                          "cost": result[1], "reason": result[2],
+                          "path": result[0]}))
+        sys.stdout.flush()
+
+
+if __name__ == "__main__":
+    main()
