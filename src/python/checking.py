@@ -5,8 +5,6 @@ from typing import Union
 from logging import getLogger
 
 from networkx import DiGraph, NetworkXException, has_path
-from numpy import ndarray
-from numpy.random import RandomState
 
 LOG = getLogger(__name__)
 
@@ -678,6 +676,8 @@ def check_seed(seed, algorithm=None):
     """Check whether given seed can be used to seed a numpy.random.RandomState
     :return: numpy.random.RandomState (seeded if seed given)
     """
+    from numpy.random import RandomState
+
     if algorithm and "bidirectional" in algorithm:
         if not isinstance(seed, int):
             raise TypeError("{} cannot be used to seed".format(seed))
@@ -755,11 +755,18 @@ def _check_edge_attr(G, max_res, min_res, direction, algorithm):
             "Edges must have 'res_cost' attribute with length equal to"
             + " 'min_res' == 'max_res"
         )
-    if (
-        not all(isinstance(edge[2]["res_cost"], ndarray) for edge in G.edges(data=True))
-        and "bidirectional" not in algorithm
-    ):
-        raise TypeError("The edge 'res_cost' attribute must be a numpy.array")
+    # The algorithm test comes first so that numpy is only imported for the
+    # algorithms that require it. BiDirectional does not: it converts
+    # res_cost through the SWIG layer and never asks for an ndarray, which is
+    # why it was already exempt from this check. Keeping the import out of the
+    # module header is what lets numpy be an optional dependency.
+    if "bidirectional" not in algorithm:
+        from numpy import ndarray
+
+        if not all(
+            isinstance(edge[2]["res_cost"], ndarray) for edge in G.edges(data=True)
+        ):
+            raise TypeError("The edge 'res_cost' attribute must be a numpy.array")
 
 
 def _check_path(G, max_res, min_res, direction, algorithm):

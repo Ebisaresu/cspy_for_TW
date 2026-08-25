@@ -32,9 +32,11 @@ keywords = [
   "column generation",
   "vehicle routing",
 ]
+# networkx only. The public interface of the labelling algorithm is a
+# networkx DiGraph, so it cannot be made optional; numpy can, and is, because
+# nothing on that code path uses it -- see [project.optional-dependencies].
 dependencies = [
   "networkx",
-  "numpy",
 ]
 classifiers = [
   "Development Status :: 4 - Beta",
@@ -54,6 +56,19 @@ classifiers = [
   "Programming Language :: C++",
   "Topic :: Scientific/Engineering :: Mathematics",
 ]
+
+# numpy is needed by the heuristic algorithms (GRASP, PSOLGENT, Tabu,
+# GreedyElim) and by nothing else in the package: BiDirectional, the reason
+# this fork exists, converts resource vectors through the SWIG layer and never
+# touches an ndarray. Keeping numpy out of the hard requirements means
+# `pip install cspy-tw` adds one package to an environment rather than two,
+# which matters where numpy is pinned by something else.
+#
+# `import cspy_tw` and `from cspy_tw import BiDirectional` work without it.
+# Asking for a heuristic without it raises an ImportError naming this extra
+# (see the module __getattr__ in src/python/__init__.py).
+[project.optional-dependencies]
+heuristics = ["numpy"]
 
 [project.urls]
 Homepage = "https://github.com/Ebisaresu/cspy_for_TW"
@@ -139,8 +154,11 @@ skip = ["*-musllinux_*"]
 # "self.member_size" to numpy.ones). The script deselects exactly those four by
 # name and fails if they ever stop existing.
 #
-# No test-requires: the suite imports nothing that the wheel does not already
-# depend on.
+# test-requires: numpy. The suite covers the heuristic algorithms as well as
+# the labelling one, so it needs the `heuristics` extra; numpy is no longer a
+# hard requirement of the wheel and would otherwise be absent from the test
+# environment.
+test-requires = ["numpy"]
 test-command = "python {project}/.github/scripts/run_tests.py"
 
 [tool.cibuildwheel.macos.environment]

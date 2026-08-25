@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+ - **NumPy is now an optional dependency.** `pip install cspy-tw` installs
+   NetworkX and nothing else; NumPy arrives only with the new `heuristics`
+   extra:
+
+   ```none
+   pip install "cspy-tw[heuristics]"
+   ```
+
+   Nothing on the `BiDirectional` code path uses NumPy. The two imports that
+   made it a hard requirement were both in `cspy.checking`: an `ndarray`
+   isinstance check that the labelling algorithm was already exempt from
+   (`"bidirectional" not in algorithm`), and a `RandomState` used by
+   `check_seed`, whose only caller is PSOLGENT — the seeding call in
+   `BiDirectional` has been commented out for as long as this fork has
+   existed. Both are now imported where they are used, and the `ndarray`
+   branch tests the algorithm name first so the import is never reached for
+   `BiDirectional`.
+
+   `cspy_tw/__init__.py` resolves `Tabu`, `GreedyElim`, `PSOLGENT` and
+   `GRASP` through a PEP 562 module `__getattr__` instead of importing them
+   eagerly, so `import cspy_tw` no longer drags in the heuristics (and hence
+   NumPy). `from cspy_tw import GRASP`, `cspy_tw.GRASP` and `dir(cspy_tw)`
+   behave exactly as before; without NumPy installed, the first two raise an
+   `ImportError` naming the extra rather than a bare "No module named
+   'numpy'".
+
+   Neither this fork nor upstream pins a version of either dependency, so
+   this changes what gets *installed*, not what gets *upgraded*: `pip` has
+   always accepted an existing NetworkX or NumPy and left it alone.
+
  - **The labelling core is much faster; no result changes.** Verified by a
    sweep of 120 random instances across all five dominance modes (mandatory
    visits + windows, windows only, plain elementary, two-cycle elimination,

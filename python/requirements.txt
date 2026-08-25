@@ -1,2 +1,5 @@
+# Runtime requirement of the package. numpy is deliberately absent: it is an
+# optional extra needed only by the heuristic algorithms, declared as
+# [project.optional-dependencies] heuristics in pyproject.toml. Install it
+# with `pip install "cspy-tw[heuristics]"`.
 networkx>=2.2
-numpy>=1.13.3

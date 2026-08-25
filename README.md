@@ -212,12 +212,27 @@ Please see the [docs](https://cspy.readthedocs.io/en/latest/index.html) for indi
 
 Conceptual background and input formatting is discussed in the [docs](https://torressa.github.io/cspy/how_to.html).
 
-Module dependencies are:
+The only required dependency is
+[NetworkX](https://networkx.github.io/documentation/stable/), installed
+automatically by `pip`. The public interface of `BiDirectional` is a
+`networkx.DiGraph`, so it cannot be avoided.
 
-- [NetworkX](https://networkx.github.io/documentation/stable/)
-- [NumPy](https://docs.scipy.org/doc/numpy/reference/)
+[NumPy](https://docs.scipy.org/doc/numpy/reference/) is **optional** and is
+not installed by default. It is needed only by the heuristic algorithms
+(`GRASP`, `PSOLGENT`, `Tabu`, `GreedyElim`); the labelling algorithm this fork
+exists for never touches an ndarray. `import cspy_tw` and
+`from cspy_tw import BiDirectional` work without it, and asking for a
+heuristic without it raises an `ImportError` naming the extra:
 
-Both are installed automatically by `pip`. Note that
+```none
+python3 -m pip install "cspy-tw[heuristics]"
+```
+
+(Upstream `cspy` requires both unconditionally. Note that neither project
+pins a version: `pip` accepts whatever NetworkX or NumPy is already installed
+and will not upgrade or downgrade them.)
+
+Note that
 [`python/requirements.dev.txt`](python/requirements.dev.txt) contains modules for development purposes.
 
 ### Installing
