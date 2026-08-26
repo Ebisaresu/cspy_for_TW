@@ -44,7 +44,7 @@ project(
   # Unchanged on purpose: PROJECT_NAME drives the C++ export set
   # (cspyTargets), the cspy:: namespace and cspyConfig.cmake. See cmake/cpp.cmake.
   cspy
-  VERSION 1.1.1
+  VERSION 1.2.0
   LANGUAGES CXX)
 message(STATUS "project: ${PROJECT_NAME}")
 message(STATUS "version: ${PROJECT_VERSION}")

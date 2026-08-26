@@ -250,7 +250,7 @@ the three routes below instead.
 
 **Take route (a) unless you have a reason not to**, and on Windows in
 particular. The wheels attached to
-[v1.1.0](https://github.com/Ebisaresu/cspy_for_TW/releases/tag/v1.1.0) were
+[v1.2.0](https://github.com/Ebisaresu/cspy_for_TW/releases/tag/v1.2.0) were
 built by continuous integration on each platform and had the test suite run
 against them there; a Windows wheel additionally goes through `delvewheel`,
 which copies the Visual C++ runtime it needs into the wheel so that loading it
@@ -271,7 +271,7 @@ other's objects.
 
 #### (a) A prebuilt wheel from the releases page
 
-[v1.1.0](https://github.com/Ebisaresu/cspy_for_TW/releases/tag/v1.1.0) is
+[v1.2.0](https://github.com/Ebisaresu/cspy_for_TW/releases/tag/v1.2.0) is
 tagged and carries 25 wheels, covering CPython 3.9 to 3.13 on all three
 platforms.
 
@@ -314,7 +314,7 @@ machine at all, take route (b).
 On Windows with Anaconda, for CPython 3.10 that is:
 
 ```none
-python -m pip install --force-reinstall --no-cache-dir https://github.com/Ebisaresu/cspy_for_TW/releases/download/v1.1.0/cspy_tw-1.1.0-cp310-cp310-win_amd64.whl
+python -m pip install --force-reinstall --no-cache-dir https://github.com/Ebisaresu/cspy_for_TW/releases/download/v1.2.0/cspy_tw-1.2.0-cp310-cp310-win_amd64.whl
 ```
 
 `--force-reinstall` matters when a source build is already installed: without
@@ -363,7 +363,7 @@ The command took about half a minute on an Apple silicon laptop; on a slower
 machine, or one where CMake and Ninja have to be downloaded first, expect a few
 minutes. No timing has been measured on Windows. A particular
 revision can be pinned by appending it to the address, for example
-`git+https://github.com/Ebisaresu/cspy_for_TW.git@v1.1.1`.
+`git+https://github.com/Ebisaresu/cspy_for_TW.git@v1.2.0`.
 
 #### (c) A source build
 
@@ -407,7 +407,7 @@ the build system is [Building](#6-building) below.
 
 ```console
 $ python3 -c "import cspy_tw; print(cspy_tw.__version__)"
-1.1.1
+1.2.0
 ```
 
 The upstream package answers `import cspy` and knows nothing about
@@ -441,7 +441,7 @@ carries the runtime it was built against inside it and was tested on a Windows
 runner:
 
 ```none
-python -m pip install --force-reinstall --no-cache-dir https://github.com/Ebisaresu/cspy_for_TW/releases/download/v1.1.0/cspy_tw-1.1.0-cp310-cp310-win_amd64.whl
+python -m pip install --force-reinstall --no-cache-dir https://github.com/Ebisaresu/cspy_for_TW/releases/download/v1.2.0/cspy_tw-1.2.0-cp310-cp310-win_amd64.whl
 ```
 
 (substitute `cp39`/`cp311`/`cp312`/`cp313` for other Python versions). If that
