@@ -17,7 +17,7 @@ on:
       build-selector:
         description: >-
           Which interpreters to build for, as a cibuildwheel build selector.
-          Leave empty for the standard set (CPython 3.9 to 3.13). Narrow it to
+          Leave empty for the standard set (CPython 3.10 to 3.13). Narrow it to
           something like "cp313-*" for a quick check.
         required: false
         default: ""
@@ -140,7 +140,7 @@ jobs:
           # What to skip is left to [tool.cibuildwheel] in pyproject.toml. Only
           # the interpreter range is decided here, because the workflow_dispatch
           # input has to be able to narrow it.
-          CIBW_BUILD: ${{ inputs.build-selector || 'cp39-* cp310-* cp311-* cp312-* cp313-*' }}
+          CIBW_BUILD: ${{ inputs.build-selector || 'cp310-* cp311-* cp312-* cp313-*' }}
 
           # Without this the deployment target follows whichever macOS the
           # runner happens to run, which would tag the wheels for a version

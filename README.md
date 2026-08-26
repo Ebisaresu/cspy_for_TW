@@ -271,9 +271,11 @@ other's objects.
 
 #### (a) A prebuilt wheel from the releases page
 
-[v1.2.0](https://github.com/Ebisaresu/cspy_for_TW/releases/tag/v1.2.0) is
-tagged and carries 25 wheels, covering CPython 3.9 to 3.13 on all three
-platforms.
+[v1.2.0](https://github.com/Ebisaresu/cspy_for_TW/releases/tag/v1.2.0) is the
+current release and carries 25 wheels, covering CPython 3.9 to 3.13 on all
+three platforms. CPython 3.9 reached end of life in October 2025 and is
+dropped from the *next* release: the table below is what a release carries
+from then on, and `requires-python` is already `>=3.10`.
 
 A wheel is a prebuilt binary: it already contains the compiled C++ core, so
 nothing is compiled on your machine and no build tools are needed. A release
@@ -281,9 +283,9 @@ carries one wheel per combination below.
 
 | Operating system | Architecture | Interpreter |
 |:-----------------|:-------------|:------------|
-| Linux | x86-64, AArch64 | CPython 3.9 to 3.13 |
-| macOS 11 and later | Apple silicon, Intel | CPython 3.9 to 3.13 |
-| Windows | x86-64 | CPython 3.9 to 3.13 |
+| Linux | x86-64, AArch64 | CPython 3.10 to 3.13 |
+| macOS 11 and later | Apple silicon, Intel | CPython 3.10 to 3.13 |
+| Windows | x86-64 | CPython 3.10 to 3.13 |
 
 Windows on ARM is **not** in that table and no wheel is built for it: the build
 runs on an x86-64 Windows runner and is told to build for `AMD64` and nothing
@@ -444,7 +446,7 @@ runner:
 python -m pip install --force-reinstall --no-cache-dir https://github.com/Ebisaresu/cspy_for_TW/releases/download/v1.2.0/cspy_tw-1.2.0-cp310-cp310-win_amd64.whl
 ```
 
-(substitute `cp39`/`cp311`/`cp312`/`cp313` for other Python versions). If that
+(substitute `cp311`/`cp312`/`cp313` for other Python versions). If that
 makes the crash go away, it was the local build, not your model.
 
 If `pip` answers **`is not a supported wheel on this platform`**, it compared
@@ -1209,7 +1211,7 @@ Requirements:
 - [CMake](https://cmake.org/download/) (>=v3.14)
 - Standard C++ toolchain
 - [SWIG](https://www.swig.org/) (>=v4 is what this fork is developed against)
-- Python (>=3.9 for this fork; the upstream project states >=3.6)
+- Python (>=3.10 for this fork; the upstream project states >=3.6)
 
 Then use the wrapper [`Makefile`](Makefile) e.g. `make` in the root dir runs the unit tests
 
@@ -1273,7 +1275,8 @@ install on a machine that has none of those can show that.
 **[`wheels.yml`](.github/workflows/wheels.yml)** builds the wheels that go on
 the releases page, using
 [cibuildwheel](https://cibuildwheel.pypa.io/) on five runners (Linux x86-64 and
-AArch64, macOS Apple silicon and Intel, Windows x86-64) for CPython 3.9 to 3.13.
+AArch64, macOS Apple silicon and Intel, Windows x86-64) for CPython 3.10 to
+3.13.
 A short job reads
 [`pyproject.toml`](pyproject.toml) first, so that a one-line mistake there costs
 a few seconds rather than half an hour of build time across five runners. Every
@@ -1300,7 +1303,7 @@ There are exactly two ways to start it:
 
 - **Run it by hand** from the Actions tab, choosing "Wheels" and pressing "Run
   workflow". Three inputs, all optional:
-  - *build-selector* — a cibuildwheel build selector. Empty builds CPython 3.9
+  - *build-selector* — a cibuildwheel build selector. Empty builds CPython 3.10
     to 3.13; `cp313-*` builds one interpreter, which is the quick way to check a
     change to the build without spending half an hour.
   - *platforms* — which of the five build legs to run. `all` is the default and

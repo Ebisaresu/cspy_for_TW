@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [unreleased]
+
+### Removed
+
+ - **CPython 3.9.** It reached end of life in October 2025. `requires-python`
+   is now `>=3.10`, the classifier and the cibuildwheel selector drop `cp39`,
+   and releases from here on carry 20 wheels rather than 25.
+
+   The wheel job builds each interpreter serially within a platform leg, so
+   this is a fifth off the wall-clock of every release build. That was the
+   reason to look: a leg spends about 40% of each build compiling the
+   SWIG-generated wrapper, which is genuinely per-interpreter and cannot be
+   shared or cached, so removing an interpreter is the one lever that
+   reliably moves the total. (`ccache` was measured on this project and
+   returns a 4.5% hit rate -- the wrapper differs per interpreter and the
+   fetched dependencies land in a throwaway build directory whose paths
+   change every run. `GIT_SHALLOW` on the pinned dependencies breaks the
+   build outright: CMake clones with `--branch`, which cannot resolve a raw
+   commit hash.)
+
+   v1.2.0 and earlier still carry 3.9 wheels and keep working.
+
 ## [v1.2.0]
 
 ### Changed
