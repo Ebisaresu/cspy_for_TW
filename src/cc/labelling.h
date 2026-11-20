@@ -372,6 +372,33 @@ class Label {
    */
   bool checkSameRequiredVisits(const Label& other) const;
 
+  /**
+   * Check whether the partial paths of this label and `other` together visit
+   * every required node, i.e. whether the union of the two required-visit
+   * bit sets is the whole required set. Used by the joining step of the
+   * bidirectional search, where a forward and a backward label are combined
+   * into one Source-Sink path. Disjointness of the two paths is not checked
+   * here (mergePreCheck does that under `elementary`).
+   * Only meaningful when `params_ptr->require_all_visits` is true.
+   *
+   * Precondition: `params_ptr != nullptr` (see `checkAllRequiredVisited`).
+   *
+   * @param[in] other, Label with the label to be joined with this one
+   * @return true if the two labels together cover the required set
+   */
+  bool checkJointlyCoverRequired(const Label& other) const;
+
+  /**
+   * Group key (see `Search::efficientLabelKey`) that a label to be joined
+   * with this one must carry for the pair to cover the required set exactly
+   * once: the first word of the required set minus the first word of this
+   * label's mask. Under `elementary` the two partial paths of a joinable pair
+   * are disjoint, so their first words must be exact complements within the
+   * required set, and every other group can be skipped without being looked
+   * at. Only meaningful when `params_ptr->require_all_visits` is true.
+   */
+  std::uint64_t complementRequiredKey() const;
+
   /// set phi attribute for merged labels from Righini and Salani (2006)
   void setPhi(const double& phi_in) { phi = phi_in; }
 

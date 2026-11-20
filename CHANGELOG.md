@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [unreleased]
 
+### Added
+
+ - **`require_all_visits` now works with every search direction**, not only
+   `direction='forward'`. Whether nodes are mandatory is still the caller's
+   choice (`require_all_visits=False` by default, every customer, or a subset
+   through `required_nodes`); only the restriction on `direction` is gone.
+   The backward search refuses to reach the source with a required node
+   missing, mirroring the forward search's rule at the sink, and the joining
+   step of `direction='both'` only combines a forward and a backward label
+   whose visited sets together cover the required set. Under elementary
+   paths the two halves of a joinable pair are disjoint, so the first word
+   of the backward mask is fixed by the forward one and only that group of
+   backward labels is visited (new `Label::checkJointlyCoverRequired` and
+   `Label::complementRequiredKey`).
+
+   Which direction is faster depends on how many nodes are required. On a
+   CVRPTW pricing instance (30 customers, at most five per route) with three
+   required customers, `'forward'` took 0.9–6.0 s and `'both'` 13–20 ms on
+   each of three seeds. For a full TSPTW (every customer required),
+   `'forward'` remains about three times faster: the label count peaks
+   halfway through the tour, which is where each half of the bidirectional
+   search stops.
+
+   Verified against exhaustive enumeration on 3,200 random instances (2 to 7
+   customers, full and partial required sets, tight and loose edge budgets),
+   all three directions agreeing with the enumerated optimum on every one.
+   Results without `require_all_visits` are byte-identical to the previous
+   build (304 `direction='both'` runs with and without windows, plus the
+   `bench_labelling.py` set).
+
 ### Removed
 
  - **CPython 3.9.** It reached end of life in October 2025. `requires-python`

@@ -199,11 +199,10 @@ void BiDirectional::run() {
         " BiDirectional for every run.");
   }
   if (params_ptr_->require_all_visits) {
-    if (params_ptr_->direction != FWD) {
-      throw std::invalid_argument(
-          "[BiDirectional] required nodes are only supported with direction ="
-          " forward");
-    }
+    // Every direction is supported: each search refuses to complete a
+    // Source-Sink path that misses a required node (extendSingleLabel), and
+    // the joining step only accepts pairs whose visited sets together cover
+    // the required set (joinLabels).
     if (!params_ptr_->elementary) {
       throw std::invalid_argument(
           "[BiDirectional] required nodes require elementary = true");
@@ -591,10 +590,14 @@ void BiDirectional::extendSingleLabel(
     labelling::Label* label,
     const Directions& direction,
     const AdjVertex&  adj_vertex) {
-  // Mandatory visits: never reach the sink before every required node has
-  // been visited. Guarded, hence a no-op by default.
-  if (params_ptr_->require_all_visits && direction == FWD &&
-      adj_vertex.vertex.user_id == graph_ptr_->sink.user_id &&
+  // Mandatory visits: never complete a Source-Sink path before every
+  // required node has been visited -- the forward search must not reach the
+  // sink, nor the backward search the source, with a required node missing.
+  // Guarded, hence a no-op by default.
+  if (params_ptr_->require_all_visits &&
+      adj_vertex.vertex.user_id == (direction == FWD
+                                        ? graph_ptr_->sink.user_id
+                                        : graph_ptr_->source.user_id) &&
       !label->checkAllRequiredVisited()) {
     return;
   }
@@ -893,6 +896,7 @@ void BiDirectional::joinLabels() {
   getMinimumWeights(fwd_min.get(), bwd_min.get());
 
   std::vector<labelling::Label> merged_labels_;
+  const bool require_all_visits = params_ptr_->require_all_visits;
 
   // for each vertex visited forward
   for (const int& n : fwd_search_ptr_->visited_vertices) {
@@ -903,9 +907,9 @@ void BiDirectional::joinLabels() {
         fwd_search_ptr_->best_labels[n]->weight + *bwd_min <= UB &&
         n != graph_ptr_->sink.lemon_id) {
       // for each forward label at n. The labels are grouped by mask key;
-      // joining runs only without require_all_visits, where there is exactly
-      // one group, so this iterates the same labels in the same order as the
-      // flat vector it used to be.
+      // without require_all_visits there is exactly one group, so this
+      // iterates the same labels in the same order as the flat vector it
+      // used to be.
       for (const auto& fwd_group : fwd_search_ptr_->efficient_labels[n])
       for (auto fwd_iter = fwd_group.second.cbegin();
            fwd_iter != fwd_group.second.cend();
@@ -927,53 +931,76 @@ void BiDirectional::joinLabels() {
                 (fwd_label.weight + edge_weight +
                      bwd_search_ptr_->best_labels[m]->weight <=
                  UB)) {
-              // for each backward label at m (single group; see the
-              // forward loop above)
-              for (const auto& bwd_group :
-                   bwd_search_ptr_->efficient_labels[m])
-              for (auto bwd_iter = bwd_group.second.cbegin();
-                   bwd_iter != bwd_group.second.cend();
-                   ++bwd_iter) {
-                const labelling::Label& bwd_label = *bwd_iter;
-                // TODO: should suffice with strict > HF, but Beasley 10
-                // fails
-                if (bwd_label.resource_consumption[c_res] >= HF &&
-                    (fwd_label.weight + edge_weight + bwd_label.weight <= UB) &&
-                    labelling::mergePreCheck(fwd_label, bwd_label, max_res)) {
-                  const labelling::Label& merged_label = labelling::mergeLabels(
-                      fwd_label,
-                      bwd_label,
-                      graph_ptr_->getAdjVertex(a, true),
-                      graph_ptr_->sink,
-                      max_res,
-                      min_res);
-                  if (merged_label.vertex.lemon_id != -1 &&
-                      merged_label.checkFeasibility(max_res, min_res) &&
-                      labelling::halfwayCheck(merged_label, merged_labels_)) {
-                    if (best_label_->vertex.lemon_id == -1 ||
-                        (merged_label.fullDominance(*best_label_, FWD) ||
-                         merged_label.weight < best_label_->weight)) {
-                      // Save
-                      best_label_ =
-                          std::make_shared<labelling::Label>(merged_label);
-                      SPDLOG_INFO(
-                          "\t {} \t | \t {}",
-                          getElapsedTime(),
-                          best_label_->weight);
-                      // Tighten UB
-                      if (best_label_->weight < UB) {
-                        UB = best_label_->weight;
-                      }
-                      // Stop if time out or threshold found
-                      if (terminate(FWD, *best_label_)) {
-                        return;
+              // Try every backward label of one group at m against
+              // fwd_label. Returns true when the search has to stop (time
+              // limit or threshold reached by an improving joined path).
+              const auto join_group =
+                  [&](const std::vector<labelling::Label>& bwd_group) {
+                for (const labelling::Label& bwd_label : bwd_group) {
+                  // TODO: should suffice with strict > HF, but Beasley 10
+                  // fails
+                  if (bwd_label.resource_consumption[c_res] >= HF &&
+                      (fwd_label.weight + edge_weight + bwd_label.weight <=
+                       UB) &&
+                      (!require_all_visits ||
+                       fwd_label.checkJointlyCoverRequired(bwd_label)) &&
+                      labelling::mergePreCheck(fwd_label, bwd_label, max_res)) {
+                    const labelling::Label& merged_label =
+                        labelling::mergeLabels(
+                            fwd_label,
+                            bwd_label,
+                            graph_ptr_->getAdjVertex(a, true),
+                            graph_ptr_->sink,
+                            max_res,
+                            min_res);
+                    if (merged_label.vertex.lemon_id != -1 &&
+                        merged_label.checkFeasibility(max_res, min_res) &&
+                        labelling::halfwayCheck(merged_label, merged_labels_)) {
+                      if (best_label_->vertex.lemon_id == -1 ||
+                          (merged_label.fullDominance(*best_label_, FWD) ||
+                           merged_label.weight < best_label_->weight)) {
+                        // Save
+                        best_label_ =
+                            std::make_shared<labelling::Label>(merged_label);
+                        SPDLOG_INFO(
+                            "\t {} \t | \t {}",
+                            getElapsedTime(),
+                            best_label_->weight);
+                        // Tighten UB
+                        if (best_label_->weight < UB) {
+                          UB = best_label_->weight;
+                        }
+                        // Stop if time out or threshold found
+                        if (terminate(FWD, *best_label_)) {
+                          return true;
+                        }
                       }
                     }
+                    // Add merged label to list
+                    merged_labels_.push_back(merged_label);
                   }
-                  // Add merged label to list
-                  merged_labels_.push_back(merged_label);
-                } // else
-                  // break;
+                }
+                return false;
+              };
+              const auto& bwd_groups = bwd_search_ptr_->efficient_labels[m];
+              if (require_all_visits) {
+                // A pair can only form an accepted path if its two disjoint
+                // partial paths together cover the required set. That fixes
+                // the first word of the backward mask, hence the one group
+                // worth looking at; every other group is skipped unvisited,
+                // and checkJointlyCoverRequired settles the remaining words.
+                const auto found =
+                    bwd_groups.find(fwd_label.complementRequiredKey());
+                if (found != bwd_groups.end() && join_group(found->second)) {
+                  return;
+                }
+              } else {
+                // Single group holding every label (see the forward loop).
+                for (const auto& bwd_group : bwd_groups) {
+                  if (join_group(bwd_group.second)) {
+                    return;
+                  }
+                }
               }
             }
           }

@@ -213,8 +213,8 @@ class BiDirectional {
    * `required_user_ids` (the mandatory-visit mode, e.g. for the Traveling
    * Salesman Problem with Time Windows).
    *
-   * Must be called after `addNodes`. Requires `elementary = true` and
-   * `direction = forward`; both are checked in `run`.
+   * Must be called after `addNodes`. Requires `elementary = true`, which is
+   * checked in `run`. Every direction is supported.
    *
    * @param[in] required_user_ids, vector of int with the user ids of the
    * vertices that every accepted path must visit. Duplicates are ignored.

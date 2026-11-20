@@ -280,6 +280,25 @@ bool Label::checkSameRequiredVisits(const Label& other) const {
   return required_visited_mask == other.required_visited_mask;
 }
 
+bool Label::checkJointlyCoverRequired(const Label& other) const {
+  const int n_words = params_ptr->required_words;
+  if (required_visited_mask.size() != n_words ||
+      other.required_visited_mask.size() != n_words)
+    return false;
+  const std::uint64_t* mine   = required_visited_mask.words();
+  const std::uint64_t* theirs = other.required_visited_mask.words();
+  for (int i = 0; i < n_words; ++i)
+    if ((mine[i] | theirs[i]) != params_ptr->required_mask_full[i])
+      return false;
+  return true;
+}
+
+std::uint64_t Label::complementRequiredKey() const {
+  if (params_ptr->required_words == 0)
+    return 0;
+  return params_ptr->required_mask_full[0] & ~required_visited_mask.words()[0];
+}
+
 bool Label::checkSameFeasibleExtension(const Label& other) const {
   // Mandatory visits: a label may only dominate another label that visits
   // exactly the same required nodes. Guarded, hence a no-op by default.

@@ -1004,9 +1004,17 @@ visit indicator resource per customer. The standard dominance rule is unsound
 once coverage is required — a cheaper label whose visited set is a proper subset
 could prune the only label still able to cover the rest — so the option also
 restricts dominance to labels that visit exactly the same required nodes, which
-is why it needs `elementary=True` and `direction="forward"` and rejects anything
-else with an explanatory error; the soundness proof of that restriction is in
-[`FORMULATIONS.md`](tsptw_example/FORMULATIONS.md) Section 4.4. Two things to
+is why it needs `elementary=True` and rejects anything else with an
+explanatory error; the soundness proof of that restriction is in
+[`FORMULATIONS.md`](tsptw_example/FORMULATIONS.md) Section 4.4. Every
+`direction` is supported. The choice matters for speed: with a few required
+nodes in a pricing subproblem, `direction="both"` was 20–400x faster than
+`"forward"` in our measurements, while for a full TSPTW (every customer
+required) `"forward"` is about three times faster than `"both"`
+([`NATIVE_TW_GUIDE.md`](tsptw_example/NATIVE_TW_GUIDE.md) Section 6.6, item 1).
+Whether a node is mandatory stays the caller's choice: leave
+`require_all_visits` at `False`, require every customer, or pass a subset in
+`required_nodes`. Two things to
 keep in mind: an exact TSPTW solve
 is exponential in the number of customers (on an Apple M1 with 8 GB, well under
 a second up to about twelve customers, seconds to minutes at fourteen to

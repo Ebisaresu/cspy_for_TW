@@ -178,7 +178,11 @@ class BiDirectional:
         same required nodes. This makes it possible to solve the Traveling
         Salesman Problem with Time Windows (TSPTW) directly, without encoding
         one visit indicator resource per customer.
-        Requires ``elementary=True`` and ``direction='forward'``.
+        Requires ``elementary=True``. Every ``direction`` is supported; with
+        ``'both'`` the forward and backward searches each refuse to complete
+        a path that misses a required node, and the joining step only
+        combines a forward and a backward label whose visited sets together
+        cover ``required_nodes``.
         The restriction of the dominance rule is what makes the search sound
         here: the standard rule lets a label whose visited set is a proper
         subset dominate a label with a superset visited set, which prunes

@@ -336,7 +336,8 @@ def _build_tsptw_graph(n, travel, n_res=2):
 
 
 def _solve_required_visits(n, travel, tw_a, tw_b, service,
-                           required_nodes=None, max_edges=None, **kwargs):
+                           required_nodes=None, max_edges=None,
+                           direction="forward", **kwargs):
     """Solve a TSPTW instance with the mandatory visit interface, using only
     the two resources (edge counter + time)."""
     G = _build_tsptw_graph(n, travel)
@@ -345,7 +346,7 @@ def _solve_required_visits(n, travel, tw_a, tw_b, service,
         [float(max_edges if max_edges is not None else n + 1),
          float(tw_b[0])],
         [0.0, 0.0],
-        direction="forward",
+        direction=direction,
         elementary=True,
         time_windows={i: (float(tw_a[i]), float(tw_b[i]))
                       for i in range(1, n + 1)},
@@ -357,6 +358,12 @@ def _solve_required_visits(n, travel, tw_a, tw_b, service,
     alg.run()
     res = alg.consumed_resources
     return alg.path, alg.total_cost, (list(res) if res else None)
+
+
+#: Every search direction, with the degenerate path each one reports when no
+#: accepted Source-Sink path exists (pre-existing engine behaviour).
+ALL_DIRECTIONS = (("forward", ["Source"]), ("both", None),
+                  ("backward", ["Sink"]))
 
 
 def _simulate_tour(n, travel, tw_a, tw_b, service, order):
@@ -546,6 +553,75 @@ class TestRequiredVisitsTSPTW(unittest.TestCase):
             self.assertAlmostEqual(outcome[1], reference[1])
 
 
+class TestRequiredVisitsEveryDirection(unittest.TestCase):
+    """Mandatory visits under direction='both' and 'backward': the backward
+    search must not complete a path that misses a required node, and the
+    joining step must only combine a forward and a backward label whose
+    visited sets together cover the required set."""
+
+    def test_known_optimum(self):
+        for direction in ("both", "backward"):
+            path, cost, _res = _solve_required_visits(
+                TSPTW_N, TSPTW_TRAVEL, TSPTW_TW_A, TSPTW_TW_B, TSPTW_SERVICE,
+                direction=direction)
+            self.assertEqual(path, ["Source", 2, 5, 4, 1, 6, 3, "Sink"],
+                             direction)
+            self.assertAlmostEqual(cost, 33.0, msg=direction)
+
+    def test_subset_of_required_nodes(self):
+        required = {2, 5}
+        best = _brute_force_tours(TSPTW_N, TSPTW_TRAVEL, TSPTW_TW_A,
+                                  TSPTW_TW_B, TSPTW_SERVICE, required)
+        for direction in ("both", "backward"):
+            path, cost, _res = _solve_required_visits(
+                TSPTW_N, TSPTW_TRAVEL, TSPTW_TW_A, TSPTW_TW_B, TSPTW_SERVICE,
+                required_nodes=sorted(required), direction=direction)
+            self.assertTrue(required.issubset(path), direction)
+            self.assertAlmostEqual(cost, float(best[1]), msg=direction)
+
+    def test_infeasible_instance_returns_degenerate_path(self):
+        tw_b = list(TSPTW_TW_B)
+        tw_b[2] = 6
+        for direction, degenerate in ALL_DIRECTIONS:
+            path, _cost, _res = _solve_required_visits(
+                TSPTW_N, TSPTW_TRAVEL, TSPTW_TW_A, tuple(tw_b), TSPTW_SERVICE,
+                direction=direction)
+            self.assertEqual(path, degenerate, direction)
+
+    def test_edge_budget_forbids_full_coverage(self):
+        for direction, degenerate in ALL_DIRECTIONS:
+            path, _cost, _res = _solve_required_visits(
+                TSPTW_N, TSPTW_TRAVEL, TSPTW_TW_A, TSPTW_TW_B, TSPTW_SERVICE,
+                max_edges=TSPTW_N, direction=direction)
+            self.assertEqual(path, degenerate, direction)
+
+    def test_combined_with_threshold(self):
+        for direction in ("both", "backward"):
+            path, cost, _res = _solve_required_visits(
+                TSPTW_N, TSPTW_TRAVEL, TSPTW_TW_A, TSPTW_TW_B, TSPTW_SERVICE,
+                threshold=40.0, direction=direction)
+            self.assertEqual(path[0], "Source", direction)
+            self.assertEqual(path[-1], "Sink", direction)
+            self.assertEqual({v for v in path if isinstance(v, int)},
+                             set(range(1, TSPTW_N + 1)), direction)
+            self.assertLessEqual(cost, 40.0, direction)
+
+    def test_feature_off_is_unaffected(self):
+        """Without require_all_visits, 'both' still returns the cheapest
+        elementary path, which skips customers here."""
+        n = TSPTW_N
+        G = _build_tsptw_graph(n, TSPTW_TRAVEL)
+        alg = BiDirectional(
+            G, [float(n + 1), float(TSPTW_TW_B[0])], [0.0, 0.0],
+            direction="both", elementary=True,
+            time_windows={i: (float(TSPTW_TW_A[i]), float(TSPTW_TW_B[i]))
+                          for i in range(1, n + 1)},
+            service_times={i: float(TSPTW_SERVICE[i]) for i in range(1, n + 1)},
+        )
+        alg.run()
+        self.assertLess(alg.total_cost, 33.0)
+
+
 class TestRequiredVisitsRandomised(unittest.TestCase):
     """Randomised mandatory-visit instances against exhaustive enumeration."""
 
@@ -573,20 +649,22 @@ class TestRequiredVisitsRandomised(unittest.TestCase):
             travel, tw_a, tw_b, service = self._random_instance(rng, n)
             required = set(range(1, n + 1))
             best = _brute_force_tours(n, travel, tw_a, tw_b, service, required)
-            path, cost, _res = _solve_required_visits(
-                n, travel, tw_a, tw_b, service)
-            if best is None:
-                self.assertEqual(path, ["Source"], "instance %d" % k)
-                continue
-            n_feasible += 1
-            self.assertEqual(path[-1], "Sink", "instance %d" % k)
-            visited = tuple(v for v in path if isinstance(v, int))
-            self.assertEqual(set(visited), required, "instance %d" % k)
-            self.assertAlmostEqual(cost, float(best[1]),
-                                   msg="instance %d cost" % k)
-            self.assertIsNotNone(
-                _simulate_tour(n, travel, tw_a, tw_b, service, visited),
-                "instance %d: returned tour violates a window" % k)
+            n_feasible += best is not None
+            for direction, degenerate in ALL_DIRECTIONS:
+                msg = "instance %d, direction %s" % (k, direction)
+                path, cost, _res = _solve_required_visits(
+                    n, travel, tw_a, tw_b, service, direction=direction)
+                if best is None:
+                    self.assertEqual(path, degenerate, msg)
+                    continue
+                self.assertEqual(path[0], "Source", msg)
+                self.assertEqual(path[-1], "Sink", msg)
+                visited = tuple(v for v in path if isinstance(v, int))
+                self.assertEqual(set(visited), required, msg)
+                self.assertAlmostEqual(cost, float(best[1]), msg=msg)
+                self.assertIsNotNone(
+                    _simulate_tour(n, travel, tw_a, tw_b, service, visited),
+                    msg + ": returned tour violates a window")
         self.assertGreater(n_feasible, self.N_INSTANCES // 2)
 
     def test_subset_coverage_vs_exhaustive_enumeration(self):
@@ -597,17 +675,23 @@ class TestRequiredVisitsRandomised(unittest.TestCase):
             travel, tw_a, tw_b, service = self._random_instance(rng, n)
             required = set(rng.sample(range(1, n + 1), max(1, n - 1)))
             best = _brute_force_tours(n, travel, tw_a, tw_b, service, required)
-            path, cost, _res = _solve_required_visits(
-                n, travel, tw_a, tw_b, service,
-                required_nodes=sorted(required))
-            if best is None:
-                self.assertEqual(path, ["Source"], "instance %d" % k)
-                continue
-            n_feasible += 1
-            visited = tuple(v for v in path if isinstance(v, int))
-            self.assertTrue(required.issubset(visited), "instance %d" % k)
-            self.assertAlmostEqual(cost, float(best[1]),
-                                   msg="instance %d cost" % k)
+            n_feasible += best is not None
+            for direction, degenerate in ALL_DIRECTIONS:
+                msg = "instance %d, direction %s" % (k, direction)
+                path, cost, _res = _solve_required_visits(
+                    n, travel, tw_a, tw_b, service,
+                    required_nodes=sorted(required), direction=direction)
+                if best is None:
+                    self.assertEqual(path, degenerate, msg)
+                    continue
+                self.assertEqual(path[0], "Source", msg)
+                self.assertEqual(path[-1], "Sink", msg)
+                visited = tuple(v for v in path if isinstance(v, int))
+                self.assertTrue(required.issubset(visited), msg)
+                self.assertAlmostEqual(cost, float(best[1]), msg=msg)
+                self.assertIsNotNone(
+                    _simulate_tour(n, travel, tw_a, tw_b, service, visited),
+                    msg + ": returned tour violates a window")
         self.assertGreater(n_feasible, self.N_INSTANCES // 2)
 
 
@@ -618,15 +702,11 @@ class TestRequiredVisitsChecks(unittest.TestCase):
         G = _build_graph(TW_EDGES)
         return BiDirectional(G, [10.0, 100.0], [0.0, 0.0], **kwargs)
 
-    def test_direction_both_rejected_with_actionable_message(self):
-        with self.assertRaises(Exception) as caught:
-            self._make(elementary=True, require_all_visits=True)
-        self.assertIn("direction='forward'", str(caught.exception))
-
-    def test_direction_backward_rejected(self):
-        with self.assertRaises(Exception):
-            self._make(direction="backward", elementary=True,
-                       require_all_visits=True)
+    def test_every_direction_accepted(self):
+        # The default direction is 'both'.
+        for kwargs in ({}, {"direction": "both"}, {"direction": "backward"},
+                       {"direction": "forward"}):
+            self._make(elementary=True, require_all_visits=True, **kwargs)
 
     def test_non_elementary_rejected(self):
         with self.assertRaises(Exception) as caught:
@@ -713,15 +793,17 @@ class TestRequiredVisitsChecks(unittest.TestCase):
                 engine.addEdge(tail, head, 1.0, double_vector([1.0, 1.0]))
         return engine
 
-    def test_native_engine_rejects_direction_both(self):
-        # The C++ engine must refuse the same combinations, so that callers
-        # bypassing the Python layer cannot silently get unsound answers.
-        # The default direction of the engine is 'both'.
+    def test_native_engine_both_run_covers_required_nodes(self):
+        # The default direction of the engine is 'both'. The shortcuts
+        # 0-1-3 and 0-2-3 are cheaper per edge but miss a required node.
         engine = self._native_engine()
-        engine.setRequiredNodes([1, 2])
         engine.setElementary(True)
-        with self.assertRaises(RuntimeError):
-            engine.run()
+        engine.setRequiredNodes([1, 2])
+        engine.run()
+        path = list(engine.getPath())
+        self.assertEqual(path[0], 0)
+        self.assertEqual(path[-1], 3)
+        self.assertEqual(set(path), {0, 1, 2, 3})
 
     def test_native_engine_rejects_non_elementary(self):
         engine = self._native_engine()
@@ -794,7 +876,7 @@ class TestRequiredVisitsBitSet(unittest.TestCase):
     several words)."""
 
     @staticmethod
-    def _solve_chain(n_customers):
+    def _solve_chain(n_customers, direction="forward"):
         """A path graph Source -> 1 -> 2 -> ... -> n -> Sink, in which the
         only Source-Sink path covering every customer is the full chain, plus
         a shortcut Source -> Sink that the requirement must reject."""
@@ -806,21 +888,27 @@ class TestRequiredVisitsBitSet(unittest.TestCase):
                    weight=0.5)
         alg = BiDirectional(
             G, [float(n_customers + 2), float(n_customers + 2)], [0.0, 0.0],
-            direction="forward", elementary=True, require_all_visits=True)
+            direction=direction, elementary=True, require_all_visits=True)
         alg.run()
         return alg.path, alg.total_cost, sequence
 
     def test_inline_word_up_to_64_required_nodes(self):
-        for n in (1, 63, 64):
-            path, cost, sequence = self._solve_chain(n)
-            self.assertEqual(path, sequence, "n = %d" % n)
-            self.assertAlmostEqual(cost, float(n + 1), msg="n = %d" % n)
+        for direction, _degenerate in ALL_DIRECTIONS:
+            for n in (1, 63, 64):
+                msg = "n = %d, direction %s" % (n, direction)
+                path, cost, sequence = self._solve_chain(n, direction)
+                self.assertEqual(path, sequence, msg)
+                self.assertAlmostEqual(cost, float(n + 1), msg=msg)
 
     def test_heap_words_beyond_64_required_nodes(self):
-        for n in (65, 128, 129, 200):
-            path, cost, sequence = self._solve_chain(n)
-            self.assertEqual(path, sequence, "n = %d" % n)
-            self.assertAlmostEqual(cost, float(n + 1), msg="n = %d" % n)
+        # Under 'both' the join has to check every word of the two masks,
+        # not only the first one that selects the group.
+        for direction, _degenerate in ALL_DIRECTIONS:
+            for n in (65, 128, 129, 200):
+                msg = "n = %d, direction %s" % (n, direction)
+                path, cost, sequence = self._solve_chain(n, direction)
+                self.assertEqual(path, sequence, msg)
+                self.assertAlmostEqual(cost, float(n + 1), msg=msg)
 
 
 class TestNativeNoPythonCallback(unittest.TestCase):

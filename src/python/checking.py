@@ -410,8 +410,8 @@ def check_required_visits(
     G : object instance :class:`nx.Digraph()`
 
     direction : string
-        preferred search direction. Only ``'forward'`` supports mandatory
-        visits.
+        preferred search direction. Every direction supports mandatory
+        visits; the argument is accepted for interface stability.
 
     elementary : bool
         whether the problem is elementary. Mandatory visits require ``True``.
@@ -463,15 +463,9 @@ def check_required_visits(
                 " dominance argument relies on elementary paths"
             )
         )
-    if direction != "forward":
-        errors.append(
-            TypeError(
-                "require_all_visits=True requires direction='forward' (got"
-                " '{}'). The backward search and the label joining step cannot"
-                " yet certify that all required nodes are visited; pass"
-                " direction='forward'.".format(direction)
-            )
-        )
+    # Every direction is supported: the engine refuses to complete a
+    # Source-Sink path in either search, and to join a forward and a backward
+    # label, unless the result covers every required node.
     # `names` is the single materialisation of `required_nodes`; it is what
     # the caller must use from here on (see the Returns section).
     names = None

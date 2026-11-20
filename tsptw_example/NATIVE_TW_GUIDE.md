@@ -766,7 +766,7 @@ counter and time.
 
 | Argument | Type / default | Meaning |
 |---|---|---|
-| `require_all_visits` | `bool` / `False` | When true, only `Source` → `Sink` paths that visit every vertex of `required_nodes` are accepted, and dominance is restricted to match (Section 6.4). Requires `direction='forward'` and `elementary=True` |
+| `require_all_visits` | `bool` / `False` | When true, only `Source` → `Sink` paths that visit every vertex of `required_nodes` are accepted, and dominance is restricted to match (Section 6.4). Requires `elementary=True`; every `direction` is supported |
 | `required_nodes` | iterable of node labels / `None` | The set $R$, given as the **original node labels** of `G`, not the internal integer identifiers. Duplicates are ignored and the order is irrelevant. `None` means every vertex other than `'Source'` and `'Sink'`. Only usable together with `require_all_visits=True` |
 
 `required_nodes` accepts any iterable, including one that can be traversed
@@ -857,7 +857,7 @@ alg = BiDirectional(
     G,
     [float(n + 1), float(horizon)],   # max_res
     [0.0, 0.0],                       # min_res
-    direction="forward",              # required by require_all_visits
+    direction="forward",              # any direction works (see below)
     elementary=True,                  # required by require_all_visits
     time_windows=time_windows,
     service_times=service_times,
@@ -882,12 +882,17 @@ alg2.run()
 print("subset tour       :", " -> ".join(str(v) for v in alg2.path))
 print("subset cost       :", alg2.total_cost)
 
-# An unsupported search direction is refused with an actionable message.
-try:
-    BiDirectional(G, [float(n + 1), float(horizon)], [0.0, 0.0],
-                  elementary=True, require_all_visits=True)   # direction='both'
-except Exception as error:
-    print("guard             :", error)
+# The bidirectional search gives the same optimum. Its window-resource
+# value is the join surrogate, not a service start time (Section 10).
+alg3 = BiDirectional(
+    G, [float(n + 1), float(horizon)], [0.0, 0.0],
+    direction="both", elementary=True,
+    time_windows=time_windows, service_times=service_times,
+    require_all_visits=True,
+)
+alg3.run()
+print("both, tour        :", " -> ".join(str(v) for v in alg3.path))
+print("both, cost        :", alg3.total_cost)
 ```
 
 Output (actual output):
@@ -898,7 +903,8 @@ total travel time : 33.0
 edges, return time: [7.0, 66.0]
 subset tour       : Source -> 2 -> 5 -> Sink
 subset cost       : 16.0
-guard             : require_all_visits=True requires direction='forward' (got 'both'). The backward search and the label joining step cannot yet certify that all required nodes are visited; pass direction='forward'.
+both, tour        : Source -> 2 -> 5 -> 4 -> 1 -> 6 -> 3 -> Sink
+both, cost        : 33.0
 ```
 
 **How to read this.** The first tour is the known optimum of Instance C:
@@ -907,8 +913,9 @@ values tabulated above. The second run sets $R = \{2, 5\}$, and since
 visiting anyone else only adds travel time it returns the two-customer tour
 at cost 16. A **proper subset is a meaningful request, not a degenerate
 one**: the listed vertices must be visited and the rest are visited only
-when that pays off. The third run leaves `direction` at its default
-`'both'` and is refused in the constructor (Section 6.6, restriction 1).
+when that pays off. The third run uses `direction='both'` and returns the
+same tour; which direction is faster depends on the instance (Section 6.6,
+item 1).
 
 ### 6.4 Why the dominance rule has to change
 
@@ -1113,14 +1120,29 @@ what it was built to measure, and not for the absolute difficulty of a
 
 ### 6.6 Restrictions and caveats
 
-1. **`direction='forward'` only.** `'both'` and `'backward'` are rejected
-   with an explanatory exception, from the Python layer and from the C++
-   engine. The backward search and the label joining step would each need
-   their own coverage argument (the bounds used in `joinLabels`, `getUB`
-   and `best_labels` may come from paths that do not cover $R$), and until
-   that is worked out the safe answer is to refuse. Since the default is
-   `direction='both'`, this exception is the first thing most callers see;
-   it names the fix.
+1. **Every direction is supported; choose it per instance.** Under
+   `'backward'` and `'both'` the backward search refuses to reach the
+   source, exactly as the forward search refuses to reach the sink, with a
+   required vertex missing. The joining step of `'both'` only combines a
+   forward label and a backward label whose visited sets together cover $R$;
+   since the two partial paths of a joinable pair are disjoint, the first
+   word of the backward mask is fixed by the forward one, so only one group
+   of backward labels is looked at. `getUB` and the best labels at the sink
+   and source need no change: by the terminal conditions, every complete
+   path either search produces already covers $R$. The dominance argument of
+   Section 6.4 applies to backward labels by symmetry.
+   **Which direction is faster depends on $|R|$.** With a few required
+   vertices in a pricing-shaped instance, `'both'` behaves like the plain
+   ESPPRC and is far faster: on a CVRPTW pricing instance with 30 customers,
+   at most five per route and three required customers, `'forward'` takes
+   0.9–6.0 s and `'both'` 13–20 ms, the same optimum on every seed. With
+   $R = N$ (full TSPTW) it is the other way round: the number of labels per
+   visited set peaks at $|V(L)| \approx n/2$, which is exactly where each
+   half of the bidirectional search stops, so it saves little search and
+   adds the joining step. On the TSPTW instances of
+   `benchmarks/python/bench_labelling.py` (n = 12 to 18), `'both'` is about
+   three times slower than `'forward'`. Use `'forward'` for full coverage
+   and `'both'` when only a few vertices are required.
 2. **`elementary=True` is required.** The soundness argument of
    Section 6.4 uses it, and without it the visited-set bit set would
    silently collapse repeated visits.

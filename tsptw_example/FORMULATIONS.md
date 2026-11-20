@@ -1674,7 +1674,13 @@ already covers $R$. This loses nothing: an optimal path covers $R$ at the
 vertex before $d$, and every refused label would have produced a path that
 does not cover $R$. Under `direction="forward"` the search is complete, since
 the halfway-point cut-off fires only for `direction="both"`, so global
-optimality follows.
+optimality follows. The backward search applies the mirror condition (an
+extension into $o$ is refused unless the label covers $R$), and the
+argument above holds for it with the roles of $o$ and $d$ exchanged. Under
+`direction="both"` the joining step accepts a forward label $L_f$ and a
+backward label $L_b$ only when $V(L_f) \cup V(L_b) \supseteq R$; every
+optimal path that covers $R$ splits into such a pair, so the join loses
+nothing either.
 
 The soundness proof uses monotonicity of the resource extension functions,
 which the engine assumes anyway. It is therefore inherited, not introduced:
@@ -1769,7 +1775,7 @@ Hamiltonian path kills the very first label, whose arc count is 1
 | (C1) | `require_all_visits=True` | default `False` |
 | $R$ | `required_nodes` | an iterable of the **original** node labels; `None` means every vertex other than `"Source"` and `"Sink"`; a proper subset is a meaningful request; an empty set is rejected; the iterable is materialised exactly once |
 | precondition | `elementary=True` | the soundness proof of Section 4.4 uses it |
-| precondition | `direction="forward"` | the backward search and the join step would each need their own coverage argument; `"both"` and `"backward"` are refused with an explanatory exception |
+| `direction` | any | the backward search refuses to reach $o$ without covering $R$, and the join of `"both"` only combines pairs that together cover $R$ (Section 4.4); `"forward"` is usually faster for $R = N$, `"both"` when $R$ is small |
 
 The reference alternative — useful when a required-visit-like condition has to
 be expressed that the option does not cover — is the indicator recipe of
